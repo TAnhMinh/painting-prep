@@ -1,0 +1,6 @@
+# Pinned so local and CI use the same compiler and lints (D17).
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

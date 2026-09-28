@@ -13,10 +13,17 @@ Read `docs/spec.md` before planning any change. Log significant decisions in `do
 
 ## Commands
 Keep these commands up to date as tooling is set up.
-- `cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test --workspace`
-- `cargo run -p prep-cli -- values -n 5 in.jpg out.png`
+- Full check (same as CI, `.github/workflows/ci.yml`): `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo check -p prep-wasm --target wasm32-unknown-unknown`
+- `cargo run -p prep-cli -- values -n 5 in.jpg out.png` (commands arrive in M1; binary is `prep`)
 - wasm build: target `wasm32-unknown-unknown`, single-threaded (spec §5). Exact tool TBD in M2; verify the currently recommended toolchain (wasm-bindgen CLI / wasm-pack / trunk) before choosing. The `wasm-bindgen` CLI and crate versions must match exactly.
 - Browser tests: Playwright WebKit on Ubuntu (set up in M2).
+
+## Toolchain (D17)
+- Rust is pinned in `rust-toolchain.toml` (1.98.1, with rustfmt, clippy, wasm32). Bump it deliberately, together with `rust-version` in `Cargo.toml`.
+- The dev machine's rustup default is `system` (apt Rust 1.93.1), because the user's Suricata work depends on it. Only this repo uses the pinned toolchain. Never run `rustup default`, `rustup update` or `rustup self uninstall`, and never modify `~/.cargo/config.toml`.
+- `~/.cargo/config.toml` swaps crates.io for a work mirror, and that applies to this repo too. Resolve this before adding the first dependency in M1. The likely fix is a project `.cargo/config.toml`.
+- Shells started before rustup was installed may not have `~/.cargo/bin` on PATH. If `cargo fmt` or `cargo clippy` is missing, run `export PATH="$HOME/.cargo/bin:$PATH"`.
+- `prep-core` denies `clippy::unwrap_used` and `clippy::expect_used` outside tests, so clippy enforces the no-unwrap rule.
 
 ## Workflow
 - One feature per session. Use plan mode for anything touching more than one crate.

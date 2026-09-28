@@ -1,0 +1,9 @@
+[package]
+name = "prep-core"
+description = "Image logic for Painting Prep: colour math, histogram, quantization, blur, grid geometry."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]

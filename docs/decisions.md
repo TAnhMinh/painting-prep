@@ -68,3 +68,11 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 ## D16 — Snapshots hold settings plus a rendered preview, in memory, max 4 (2026-09-28)
 - **Alternatives:** Settings only, recomputed on demand (less memory, slower flip); unlimited snapshots; persisting them in IndexedDB.
 - **Why:** Flipping between versions should be instant to be useful for comparison, so each snapshot keeps its preview as an `ImageBitmap` (~12 MB). A cap of 4 keeps memory bounded on iOS. Not persisted, consistent with D7 and D14. Cleared when a new photo is loaded.
+
+## D17 — Pinned rustup toolchain per repo; system Rust stays the default (2026-09-28)
+- **Context:** The dev machine had only Ubuntu's apt Rust 1.93.1, which has no rustfmt, clippy, or wasm32 target. The same machine builds the user's work projects (Suricata-based), which expect that apt Rust.
+- **Decision:** Install rustup with `--default-toolchain none`, link the apt Rust as the `system` toolchain, and make it the default. This repo pins `1.98.1` (then the current stable) in `rust-toolchain.toml`, with rustfmt, clippy, and `wasm32-unknown-unknown`. CI installs from the same file.
+- **Alternatives:** apt rustfmt/clippy packages (no pin, CI drift, no wasm std); rustup with latest stable as the global default (would silently change the compiler for Suricata builds).
+- **Why:** Local and CI get an identical compiler and lint set. Other projects on the machine are unaffected.
+- **Also in M0:** CI (GitHub Actions) runs fmt, clippy, test, plus `cargo check -p prep-wasm --target wasm32-unknown-unknown`, so a core change that breaks wasm is caught before M2. Dependencies are added when first used: clap, image, and proptest in M1, and wasm-bindgen in M2.
+- **Open:** `~/.cargo/config.toml` routes crates.io through a work mirror. Decide in M1 whether this repo overrides it.
