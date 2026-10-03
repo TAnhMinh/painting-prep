@@ -7,3 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+palette = "0.7.7"
+proptest = "1.11.0"
