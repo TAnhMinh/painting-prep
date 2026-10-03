@@ -21,7 +21,7 @@ Keep these commands up to date as tooling is set up.
 ## Toolchain (D17)
 - Rust is pinned in `rust-toolchain.toml` (1.98.1, with rustfmt, clippy, wasm32). Bump it deliberately, together with `rust-version` in `Cargo.toml`.
 - The dev machine's rustup default is `system` (apt Rust 1.93.1), because the user's Suricata work depends on it. Only this repo uses the pinned toolchain. Never run `rustup default`, `rustup update` or `rustup self uninstall`, and never modify `~/.cargo/config.toml`.
-- `~/.cargo/config.toml` swaps crates.io for a work mirror, and that applies to this repo too. Resolve this before adding the first dependency in M1. The likely fix is a project `.cargo/config.toml`.
+- This repo fetches crates from crates.io. The user's work mirror is configured only in the work project folders' own `.cargo/config.toml` (D18). Don't add a registry config to this repo. Cargo reads `.cargo/config.toml` from every parent directory, so if a dependency fetch shows "Updating `mirror` index", a global or parent config has come back.
 - Shells started before rustup was installed may not have `~/.cargo/bin` on PATH. If `cargo fmt` or `cargo clippy` is missing, run `export PATH="$HOME/.cargo/bin:$PATH"`.
 - `prep-core` denies `clippy::unwrap_used` and `clippy::expect_used` outside tests, so clippy enforces the no-unwrap rule.
 
@@ -32,6 +32,7 @@ Keep these commands up to date as tooling is set up.
 - End each session by updating this file (new conventions, gotchas) and `docs/decisions.md`.
 
 ## Conventions
+- Never name work infrastructure in this repo (mirror hostnames, work repositories, ticket IDs, internal IPs). It's a public personal project; say "work mirror" or "work projects".
 - Core functions are deterministic and allocation-conscious. Reuse buffers where practical.
 - No `unwrap`/`expect` in library code paths of `core`. Return `Result` for invalid input (zero size, buffer length mismatch).
 - Colour values: `f32` L\* in 0..=100; sRGB as `u8`. Name conversions explicitly (`srgb_to_linear`, `y_to_lstar`).
@@ -52,4 +53,4 @@ Keep these commands up to date as tooling is set up.
 
 ## Where the AI was wrong
 Record concrete cases here, with date and what the fix was. This is part of the learning log.
-- (none yet)
+- 2026-10-03: proposed a repo `.cargo/config.toml` (later a separate `CARGO_HOME`) to bypass the global crates.io mirror. Neither works: config files can't delete inherited keys, and Cargo reads parent-directory configs up to `~/.cargo`. Fix: the user moved the mirror config into the work folders (D18). Lesson: test config overrides with a dry run before planning around them.

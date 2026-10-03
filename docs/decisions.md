@@ -75,4 +75,13 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 - **Alternatives:** apt rustfmt/clippy packages (no pin, CI drift, no wasm std); rustup with latest stable as the global default (would silently change the compiler for Suricata builds).
 - **Why:** Local and CI get an identical compiler and lint set. Other projects on the machine are unaffected.
 - **Also in M0:** CI (GitHub Actions) runs fmt, clippy, test, plus `cargo check -p prep-wasm --target wasm32-unknown-unknown`, so a core change that breaks wasm is caught before M2. Dependencies are added when first used: clap, image, and proptest in M1, and wasm-bindgen in M2.
-- **Open:** `~/.cargo/config.toml` routes crates.io through a work mirror. Decide in M1 whether this repo overrides it.
+- **Open:** `~/.cargo/config.toml` routes crates.io through a work mirror. Decide in M1 whether this repo overrides it. *Resolved by D18.*
+
+## D18 — Work crates.io mirror scoped to work checkouts; this repo uses crates.io (2026-10-03)
+- **Context:** `~/.cargo/config.toml` replaced crates.io with a work mirror. It applied to this personal repo too, and the mirror isn't always reachable from the dev machine.
+- **Decision:** The user moved the mirror block out of `~/.cargo/config.toml` into `.cargo/config.toml` in each work project folder (template: `~/.cargo/config.toml.bak`). This repo has no Cargo registry config and uses crates.io, as CI does.
+- **Tried and failed:**
+  - A repo `.cargo/config.toml` can't undo the redirect. A config file can override keys but not delete them. Pointing `replace-with` at a second crates.io source fails ("already defined by `crates-io`"), at `crates-io` itself fails ("cycle of `replace-with` sources"), and redefining the `mirror` source as crates.io fails the same way.
+  - A separate `CARGO_HOME` doesn't help. Cargo also reads every `.cargo/config.toml` in the parent directories of the working directory, so a repo under `$HOME` always picks up `~/.cargo/config.toml`.
+- **Consequence:** New work project folders need the mirror config copied in, or their builds go to crates.io. `Cargo.lock` records crates.io as the source either way, so lock files are portable.
+
