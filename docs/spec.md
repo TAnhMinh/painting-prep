@@ -142,7 +142,7 @@ Rules:
 Callers own the buffers so they can be reused between runs. The wasm crate wraps this in a stateful `Processor` that owns the buffers for the pipeline stages above.
 
 ```rust
-pub struct Image<'a> { pub rgba: &'a [u8], pub width: u32, pub height: u32 }
+pub struct Image<'a> { rgba: &'a [u8], width: u32, height: u32 } // private; only Image::new(rgba, w, h) -> Result<Image> builds one, after validating
 
 pub fn lightness_map(img: &Image, out: &mut [f32]) -> Result<()>;      // L* per pixel, 0..=100
 pub fn blur_lightness(l: &mut [f32], scratch: &mut [f32], w: u32, h: u32, sigma_px: f32) -> Result<()>;

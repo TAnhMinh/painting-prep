@@ -6,3 +6,9 @@
 #![forbid(unsafe_code)]
 // CLAUDE.md: no `unwrap`/`expect` in library code; return `Result` instead.
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
+mod error;
+mod image;
+
+pub use error::{Error, Result};
+pub use image::{BYTES_PER_PIXEL, Image};
