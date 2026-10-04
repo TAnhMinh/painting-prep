@@ -167,3 +167,44 @@ body {
   }
   .controls { border-top: 0; border-left: 1px solid var(--line); align-content: start; overflow-y: auto; }
 }
+
+/* Debug panel (spec §7): a full-screen sheet over the app. */
+.debug-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  overflow-y: auto;
+  padding:
+    calc(env(safe-area-inset-top) + 0.5rem) calc(env(safe-area-inset-right) + 0.75rem)
+    calc(env(safe-area-inset-bottom) + 0.5rem) calc(env(safe-area-inset-left) + 0.75rem);
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/1.35 ui-monospace, Menlo, monospace;
+}
+.debug-panel[hidden] { display: none; }
+.debug-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.25rem 0 0.5rem;
+  background: var(--bg);
+}
+.debug-head strong { flex: 1; font-size: 14px; }
+.debug-head button {
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+}
+.debug-info { border-collapse: collapse; margin-bottom: 0.75rem; }
+.debug-info th { padding-right: 0.75rem; text-align: left; vertical-align: top; color: var(--muted); font-weight: normal; white-space: nowrap; }
+.debug-info td { overflow-wrap: anywhere; }
+.debug-log { margin: 0; padding: 0; list-style: none; }
+.debug-log li { padding: 0.2rem 0; border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.debug-log .warn { color: #b26b00; }
+.debug-log .error { color: var(--error-fg); background: var(--error-bg); }

@@ -1,6 +1,8 @@
 // Painting Prep: pick a photo, decode it to the preview size, and show its
 // value study (spec F1, F2). All image logic runs in prep-core via wasm.
 
+// debug.js first: it captures console output from the modules after it.
+import { bindLongPress, setInfoProvider } from "./debug.js";
 import init, { Processor } from "./pkg/prep_wasm.js";
 
 /** Preview working size: long side in px (spec §7). */
@@ -17,6 +19,7 @@ const els = {
   error: $("error"),
   errorText: $("error-text"),
   errorClose: $("error-close"),
+  title: $("title"),
 };
 
 const state = {
@@ -29,7 +32,7 @@ const state = {
 };
 
 /** Facts about the current photo and the last run, for the debug panel. */
-export const stats = {
+const stats = {
   source: null, // { width, height }
   working: null, // { width, height }
   decodePath: null,
@@ -143,7 +146,10 @@ async function drawScaled(ctx, file, img, source, target) {
 async function loadPhoto(file) {
   clearError();
   document.body.dataset.busy = "true";
+  const previousStatus = els.status.textContent;
   els.status.textContent = "Loading…";
+  // Keep the shown photo's timings if this load fails.
+  const previousTimings = stats.timings;
   stats.timings = {};
   try {
     const { imageData, source, target, decodePath } = await decodeToWorkingSize(file);
@@ -173,7 +179,12 @@ async function loadPhoto(file) {
     console.info(`loaded ${els.status.textContent} via ${decodePath}`, stats.timings);
   } catch (e) {
     console.error(e);
-    els.status.textContent = "";
+    if (state.loaded) {
+      stats.timings = previousTimings;
+      els.status.textContent = previousStatus;
+    } else {
+      els.status.textContent = "";
+    }
     showError(`Couldn't open that photo: ${e.message ?? e}`);
   } finally {
     delete document.body.dataset.busy;
@@ -239,8 +250,27 @@ function bindEvents() {
   els.errorClose.addEventListener("click", clearError);
 }
 
+/** Rows for the debug panel (spec §7). */
+function debugInfo() {
+  const size = (s) => (s ? `${s.width} × ${s.height}` : "–");
+  const rows = {
+    source: size(stats.source),
+    working: size(stats.working),
+    decodePath: stats.decodePath ?? "–",
+    settings: `n = ${state.n}, greys = ${state.bucketMean ? "mean" : "even"}`,
+    // Wasm memory only grows (spec §7), so this is the session's peak.
+    wasmMemory: state.wasm ? `${(state.wasm.memory.buffer.byteLength / 2 ** 20).toFixed(1)} MB` : "–",
+  };
+  for (const [step, ms] of Object.entries(stats.timings)) {
+    rows[`${step} (ms)`] = ms.toFixed(1);
+  }
+  return rows;
+}
+
 async function main() {
   els.nValue.textContent = state.n; // the browser may restore form values
+  setInfoProvider(debugInfo);
+  bindLongPress(els.title);
   bindEvents();
   try {
     state.wasm = await init();
