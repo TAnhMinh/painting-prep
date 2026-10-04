@@ -97,3 +97,8 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
   1. *Exclude transparent pixels from the histogram:* still composite over white for display, but skip pixels with A = 0 when building the histogram. A cheap half-step that fixes the threshold shift.
   2. *Other background colour:* composite over black, mid-grey (less disturbing for a value study), or a colour the user picks. Needs a setting (F5).
   3. *Full alpha support:* weight the histogram by alpha, carry alpha through blur (transparent edges need care), posterize and export (PNG with alpha), and define how the preview shows transparent areas. The most correct option for cut-outs, and the most work.
+
+## D20 — Both output-grey modes stay user-selectable (2026-10-04)
+- **Alternatives:** Pick one mode in M1 and drop the other.
+- **Decision:** Evenly spaced and bucket mean are both an option in the app and the CLI (`--greys even|mean|both`), persisted with the other settings (F5). Open question 1 only decides the default.
+- **Why:** They answer different questions. Evenly spaced is a fixed value scale you can pre-mix paints for, the same for every photo; bucket mean shows how light each region really is. Which one is useful depends on the photo and the painting. Core already takes the mode as a parameter, so keeping both costs only one UI control.

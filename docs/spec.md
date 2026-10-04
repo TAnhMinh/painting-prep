@@ -38,7 +38,10 @@ Secondary goal: learn the agentic coding workflow (spec → plan → one feature
   - **Quantiles**: equal pixel counts per bucket.
   - **Natural breaks**: optimal 1-D k-means / Jenks on the L\* histogram.
 - Optional pre-blur ("squint"): Gaussian blur on L\* only, with sigma given as % of the image's short side (0 = off). Because it's relative, the preview and export look alike. A separable blur or a triple box-blur approximation is acceptable.
-- Output greys: bucket *i* is displayed as an evenly spaced L\* value from 0 to 100, converted back to sRGB. Alternative mode: show each bucket as its mean L\*. See open questions.
+- Output greys, a user setting with two modes (D20):
+  - **Evenly spaced:** bucket *i* is displayed as an evenly spaced L\* value from 0 to 100, converted back to sRGB. A painter's value scale, the same for every photo.
+  - **Bucket mean:** each bucket is displayed as the mean L\* of its pixels, truer to the photo.
+  - Which mode is the default is open question 1.
 - Live preview while adjusting n, algorithm, and blur.
 - Non-destructive: every change is recomputed from the original (§5), so going from 3 to 4 values and back to 3 gives the identical study.
 - Compare: hold to see the original, or show it side by side. A pinned snapshot (F6) can be the comparison instead of the original.
@@ -217,7 +220,7 @@ Each milestone is one or a few Claude Code sessions, committed when green.
 
 ## 10. Open questions
 
-1. Default output greys: evenly spaced full scale (painterly value scale) or bucket means (truer to the photo)? **Decide in M1** by having the CLI output both for the same photos.
+1. Default output greys: evenly spaced full scale (painterly value scale) or bucket means (truer to the photo)? Both stay selectable (D20); this only picks the default. **Decide in M1** by having the CLI output both for the same photos.
 2. Grid mode A: highlight the partial last cell, or offer to centre the grid instead? **Decide in M3** after trying both.
 3. Does WebKit honour `createImageBitmap` resize options, and what is the real canvas limit on the device? **Check in M2.**
 
