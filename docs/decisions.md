@@ -130,7 +130,14 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 - **Observations:**
   - `getImageData` is the slowest step, not wasm. This matches spec §7: buffer transfer, not computation, is the bottleneck.
   - Export at 12 MP will be roughly 4× these numbers, which justifies the busy indicator (F4).
+- **Large photos (first try, M2.7 build):**
+  - 8793 × 7331 (64 MP): no error was reported, but the study was solid white, briefly black at first. `draw` took 1169 ms and `getImageData` 1261 ms. Likely cause: memory pressure. WebKit doesn't throw when a canvas can't get memory; it reads back transparent black, which `composite_over_white` turns white.
+  - 11375 × 8992 (102 MP): iOS killed the page ("the web page was reloaded"). JS can't catch this.
+  - Contributing bug: the app called `img.decode()` only to learn the size. That decodes the full-resolution image (about 260 MB at 64 MP) while `createImageBitmap` decodes again.
+- **Fix (M2.8):**
+  - The size now comes from the `<img>` `load` event, which reads the header without forcing a decode (6 ms for 48 MP on desktop WebKit). The `<img>` is released right after.
+  - After drawing, the app checks that every pixel is opaque. The canvas is filled with opaque white first, so any transparent pixel means the canvas failed, and the app shows "not enough memory" instead of a wrong study. The WebKit smoke test simulates this case.
 - **Still open:**
   - The real canvas size limit (measure in M4, with export).
-  - A 48 MP photo (none tested yet).
+  - Retest 64 MP and 102 MP photos on the device with the M2.8 build. If the larger one still kills the page, refuse sources above a measured pixel limit before decoding.
   - The native CLI side of the §7 benchmark.

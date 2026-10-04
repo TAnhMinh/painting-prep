@@ -70,27 +70,31 @@ function workingSize(w, h, limit) {
 
 /**
  * Decodes `file` straight to the working size and returns its sRGB pixels
- * (spec F1). Never draws the full-resolution photo into a canvas.
+ * (spec F1). Never draws or decodes the full-resolution photo on purpose.
  */
 async function decodeToWorkingSize(file) {
   const url = URL.createObjectURL(file);
+  const img = new Image();
   try {
-    // <img> applies EXIF orientation, so its natural size is the oriented size.
-    const img = new Image();
-    img.src = url;
-    try {
-      await timed("decode", () => img.decode());
-    } catch {
-      throw new Error("this browser can't read it as an image.");
-    }
+    // The load event gives the oriented natural size (EXIF applied) from the
+    // header. Not img.decode(): that decodes the full-resolution pixels, about
+    // 260 MB for a 64 MP photo, and iOS then runs out of memory (D23).
+    await timed("header", () => loadImage(img, url));
     const source = { width: img.naturalWidth, height: img.naturalHeight };
     const target = workingSize(source.width, source.height, PREVIEW_LONG_SIDE);
+    const tooBig = () =>
+      new Error(
+        `not enough memory for a ${source.width} × ${source.height} photo. ` +
+          "Try a smaller one.",
+      );
 
     const canvas = document.createElement("canvas");
     canvas.width = target.width;
     canvas.height = target.height;
     const ctx = canvas.getContext("2d", { colorSpace: "srgb", willReadFrequently: true });
-    // White under the photo: a second guard for transparent input (D19).
+    if (!ctx) throw tooBig();
+    // White under the photo: a second guard for transparent input (D19), and
+    // the marker for a failed canvas (see below).
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, target.width, target.height);
     ctx.imageSmoothingQuality = "high";
@@ -101,10 +105,31 @@ async function decodeToWorkingSize(file) {
     );
     // Release the canvas backing store now rather than at GC.
     canvas.width = canvas.height = 0;
+    // Under memory pressure WebKit doesn't throw: the canvas silently reads back
+    // as transparent black. Over an opaque white fill every pixel must be opaque.
+    if (!allOpaque(imageData.data)) throw tooBig();
     return { imageData, source, target, decodePath };
   } finally {
+    img.src = ""; // drop any decoded pixels
     URL.revokeObjectURL(url);
   }
+}
+
+/** Resolves when `img` has loaded `url`'s header; rejects if it isn't an image. */
+function loadImage(img, url) {
+  return new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("this browser can't read it as an image."));
+    img.src = url;
+  });
+}
+
+/** True if every pixel of RGBA8 `data` has alpha 255. */
+function allOpaque(data) {
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 255) return false;
+  }
+  return true;
 }
 
 /**

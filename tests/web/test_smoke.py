@@ -132,6 +132,22 @@ class WebKitSmokeTest(unittest.TestCase):
         self.assertTrue(self.page.is_visible("#preview"))
         self.assertEqual(self.page_errors, [])
 
+    def test_failed_canvas_is_an_error_not_a_white_study(self):
+        # Under memory pressure WebKit's canvas silently reads back as
+        # transparent black (D23). Simulate that for the off-screen canvas.
+        self.page.add_init_script("""
+          const original = CanvasRenderingContext2D.prototype.getImageData;
+          CanvasRenderingContext2D.prototype.getImageData = function (x, y, w, h, s) {
+            return this.canvas.isConnected ? original.call(this, x, y, w, h, s) : new ImageData(w, h);
+          };""")
+        self.page.reload()
+        self.page.wait_for_selector("body[data-wasm=ready]")
+        self.page.set_input_files("#file", str(FIXTURE))
+        self.page.wait_for_selector("#error:not([hidden])")
+        self.assertIn("not enough memory", self.page.text_content("#error-text"))
+        self.assertFalse(self.page.is_visible("#preview"))
+        self.assertEqual(self.page_errors, [])
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main(verbosity=2))
