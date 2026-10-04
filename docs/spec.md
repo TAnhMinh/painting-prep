@@ -148,7 +148,7 @@ pub struct Image<'a> { rgba: &'a [u8], width: u32, height: u32 } // private; onl
 pub fn composite_over_white(rgba: &mut [u8], w: u32, h: u32) -> Result<()>; // once on load, before the buffer becomes the original (D19)
 pub fn lightness_map(img: &Image, out: &mut [f32]) -> Result<()>;      // L* per pixel, 0..=100
 pub fn blur_lightness(l: &mut [f32], scratch: &mut [f32], w: u32, h: u32, sigma_px: f32) -> Result<()>;
-pub fn histogram(l: &[f32], hist: &mut [u32]);                          // BINS bins over 0..=100
+pub fn histogram(l: &[f32], hist: &mut [u32; BINS]);                   // BINS = 1001, bin = round(L* × 10), clamped
 pub fn thresholds(hist: &[u32], n: u8, algo: Algorithm) -> Thresholds;  // n-1 cut points as bin indices
 pub fn bucket_greys(hist: &[u32], t: &Thresholds, mode: OutputGreys) -> Vec<u8>; // n sRGB greys
 pub fn posterize(l: &[f32], t: &Thresholds, greys: &[u8], out_rgba: &mut [u8]) -> Result<()>;
@@ -160,7 +160,7 @@ pub fn grid_lines(w: u32, h: u32, spec: &GridSpec) -> Vec<Line>;        // geome
 - **Lightness.** Decode sRGB to linear (the piecewise sRGB transfer function, not a 2.2 gamma), compute relative luminance Y = 0.2126 R + 0.7152 G + 0.0722 B, then convert to L\* with the CIE formula (including its linear segment near black). L\* depends only on Y, so a full CIELAB conversion is unnecessary.
 - **Never** use the naive RGB average or the Rec.601 luma of gamma-encoded values for lightness.
 - **Output greys.** Target L\* → Y → sRGB-encoded grey, with R = G = B.
-- **Histogram first.** Every algorithm works on a histogram of L\* (e.g. 1001 bins over 0–100), never on raw pixels. That makes it fast, deterministic, and easy to test. Natural breaks uses exact dynamic programming over histogram bins.
+- **Histogram first.** Every algorithm works on a histogram of L\* (1001 bins of 0.1 L\*; a value goes to bin round(L\* × 10), clamped to 0–1000), never on raw pixels. That makes it fast, deterministic, and easy to test. Natural breaks uses exact dynamic programming over histogram bins.
 - **Thresholds are bin indices.** A pixel is first mapped to its histogram bin, and the bucket is chosen by comparing bin indices. Pixels in the same bin always land in the same bucket, and legend percentages match the histogram exactly (D12).
 - **Ties and edges.** A bin exactly on a threshold goes to the upper bucket. Empty buckets are allowed; for example, quantiles on a flat image yield fewer distinct greys. An empty bucket keeps its evenly spaced grey in the legend, at 0%.
 - **Monotonicity.** A lighter input pixel must never map to a darker bucket than a darker input pixel.
