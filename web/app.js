@@ -15,6 +15,7 @@ const els = {
   preview: $("preview"),
   n: $("n"),
   nValue: $("n-value"),
+  nTicks: $("n-ticks"),
   status: $("status"),
   error: $("error"),
   errorText: $("error-text"),
@@ -267,8 +268,15 @@ function debugInfo() {
   return rows;
 }
 
+/** One tick per slider value, so the ticks always match min and max. */
+function drawTicks(slider, container) {
+  const count = Number(slider.max) - Number(slider.min) + 1;
+  container.replaceChildren(...Array.from({ length: count }, () => document.createElement("span")));
+}
+
 async function main() {
   els.nValue.textContent = state.n; // the browser may restore form values
+  drawTicks(els.n, els.nTicks);
   setInfoProvider(debugInfo);
   bindLongPress(els.title);
   bindEvents();

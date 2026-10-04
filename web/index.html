@@ -32,7 +32,10 @@
     </div>
     <div class="row">
       <label for="n" class="name">n</label>
-      <input id="n" type="range" min="2" max="10" step="1" value="5">
+      <div class="ruler">
+        <div id="n-ticks" class="ticks" aria-hidden="true"></div>
+        <input id="n" type="range" min="2" max="10" step="1" value="5">
+      </div>
       <output id="n-value" for="n">5</output>
     </div>
     <div class="row" role="radiogroup" aria-label="Output greys">

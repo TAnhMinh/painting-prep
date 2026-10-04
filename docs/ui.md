@@ -95,7 +95,7 @@ Only these parts, in the portrait layout. Landscape just has to stay usable (the
 
 - the top bar with the title and the debug long-press (undo, redo, reset and pin come in M6)
 - the preview
-- a Values panel with **n** (slider, 2–10, default 5) and **greys** (Even / Mean)
+- a Values panel with **n** (slider, 2–10, default 5, with a tick at every value) and **greys** (Even / Mean)
 - a "Choose photo" button (the Photo panel without its info rows)
 - the error banner and the debug panel
 
