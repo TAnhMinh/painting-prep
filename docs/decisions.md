@@ -102,3 +102,9 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 - **Alternatives:** Pick one mode in M1 and drop the other.
 - **Decision:** Evenly spaced and bucket mean are both an option in the app and the CLI (`--greys even|mean|both`), persisted with the other settings (F5). Open question 1 only decides the default.
 - **Why:** They answer different questions. Evenly spaced is a fixed value scale you can pre-mix paints for, the same for every photo; bucket mean shows how light each region really is. Which one is useful depends on the photo and the painting. Core already takes the mode as a parameter, so keeping both costs only one UI control.
+
+## D21 — CLI: clap, `image` with JPEG/PNG only, no ICC conversion (2026-10-04)
+- **Decision:** `prep` parses arguments with clap (derive), and decodes with `image` 0.25 with only the `jpeg` and `png` features (no rayon, no other formats). EXIF orientation is applied on load, as the browser does. The pipeline runs at full resolution.
+- **Why:** clap gives help text and validation for free, and the `grid` subcommand (M3) slots in. Neither crate reaches the wasm build. JPEG and PNG cover phone photos and lossless test fixtures.
+- **Known difference from the web app:** `image` doesn't apply embedded ICC profiles (it converts only between CICP colour spaces). A Display P3 iPhone JPEG is read as if it were sRGB, so it looks slightly duller than after the browser's conversion (F1). Fine for eyeballing. If CLI output must ever match the phone exactly, convert with `moxcms` (already a dependency of `image`) from `ImageDecoder::icc_profile()`. Playwright fixtures are profile-less sRGB PNGs anyway (spec §8).
+
