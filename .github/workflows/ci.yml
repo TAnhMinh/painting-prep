@@ -21,3 +21,22 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo check -p prep-wasm --target wasm32-unknown-unknown
+
+  # Spec §8: the page's study must match the CLI's in Playwright WebKit.
+  webkit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # Prebuilt CLI; must equal the wasm-bindgen crate pin (D22).
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - run: scripts/build-web.sh
+      - run: cargo build --release --locked -p prep-cli
+      - run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r tests/web/requirements.txt
+          .venv/bin/playwright install --with-deps webkit
+      - run: .venv/bin/python tests/web/test_smoke.py
