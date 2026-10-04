@@ -78,7 +78,7 @@ Secondary goal: learn the agentic coding workflow (spec → plan → one feature
 - Selecting "original" in the compare control shows the unprocessed photo at any time.
 
 ### UI
-- There is no layout spec yet. Sketch the screens before M2: control placement, where the legend goes, safe areas (notch, home indicator), portrait vs. landscape.
+- Layout: see `docs/ui.md` (sketched for M2). It covers control placement, where the legend goes, safe areas (notch, home indicator), and portrait vs. landscape.
 - Undo, redo, reset, and pin controls are always reachable without scrolling.
 - Long-press gestures ("hold to compare", debug panel) need `-webkit-touch-callout: none` and `user-select: none` on the target, or iOS shows its own callout and selection.
 
@@ -98,7 +98,7 @@ Secondary goal: learn the agentic coding workflow (spec → plan → one feature
 ```
 painting-prep/
 ├── CLAUDE.md
-├── docs/{spec.md, decisions.md}
+├── docs/{spec.md, decisions.md, ui.md}
 ├── crates/
 │   ├── core/   # package prep-core: colour math, histogram, quantization, blur, grid geometry
 │   ├── cli/    # package prep-cli, binary `prep`: decodes with `image`, calls prep-core
