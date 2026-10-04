@@ -46,6 +46,19 @@ pub fn bucket_greys(hist: &[u32; BINS], t: &Thresholds, mode: OutputGreys) -> Ve
     lstars.into_iter().map(lstar_to_grey).collect()
 }
 
+/// The number of pixels in each of the `t.n()` buckets, darkest bucket
+/// first: the legend's percentages (spec F2).
+///
+/// Bins map to buckets with the same rule as [`posterize`], so the counts
+/// match the output image exactly (D12).
+pub fn bucket_counts(hist: &[u32; BINS], t: &Thresholds) -> Vec<u64> {
+    let mut counts = vec![0; usize::from(t.n())];
+    for (bin, &count) in hist.iter().enumerate() {
+        counts[t.bucket(bin)] += u64::from(count);
+    }
+    counts
+}
+
 /// The sRGB grey (R = G = B) of an L\* value: L\* → Y → sRGB (spec §6).
 fn lstar_to_grey(lstar: f32) -> u8 {
     linear_to_srgb(lstar_to_y(lstar))
@@ -148,6 +161,25 @@ mod tests {
         let hist = hist_of(&[20.0; 4]);
         let greys = bucket_greys(&hist, &equal(3), OutputGreys::BucketMean);
         assert_eq!(greys, vec![48, 119, 255]);
+    }
+
+    #[test]
+    fn counts_pixels_per_bucket() {
+        let hist = hist_of(&[20.0, 80.0, 80.0, 90.0]);
+        assert_eq!(bucket_counts(&hist, &equal(2)), vec![1, 3]);
+    }
+
+    #[test]
+    fn empty_bucket_counts_zero() {
+        let hist = hist_of(&[10.0, 95.0]);
+        assert_eq!(bucket_counts(&hist, &equal(3)), vec![1, 0, 1]);
+    }
+
+    #[test]
+    fn pixel_on_a_cut_is_counted_in_upper_bucket() {
+        // L* 49.96 rounds into bin 500, the cut for n = 2.
+        let hist = hist_of(&[49.94, 49.96, 50.0]);
+        assert_eq!(bucket_counts(&hist, &equal(2)), vec![1, 2]);
     }
 
     #[test]
@@ -286,6 +318,27 @@ mod tests {
             let mut rev_out = study(&rev, n, mode);
             rev_out.reverse();
             prop_assert_eq!(out, rev_out);
+        }
+
+        #[test]
+        fn counts_sum_to_pixel_count(l in lstar_maps(), n in MIN_BUCKETS..=MAX_BUCKETS) {
+            let counts = bucket_counts(&hist_of(&l), &equal(n));
+            prop_assert_eq!(counts.len(), usize::from(n));
+            prop_assert_eq!(counts.iter().sum::<u64>(), l.len() as u64);
+        }
+
+        #[test]
+        fn counts_match_the_output_image(l in lstar_maps(), n in MIN_BUCKETS..=MAX_BUCKETS) {
+            // Evenly spaced greys are distinct, so each grey is one bucket.
+            let hist = hist_of(&l);
+            let t = equal(n);
+            let greys = bucket_greys(&hist, &t, OutputGreys::EvenlySpaced);
+            let out = study(&l, n, OutputGreys::EvenlySpaced);
+            let in_image: Vec<u64> = greys
+                .iter()
+                .map(|&g| out.iter().filter(|&&x| x == g).count() as u64)
+                .collect();
+            prop_assert_eq!(bucket_counts(&hist, &t), in_image);
         }
 
         #[test]
