@@ -13,9 +13,11 @@ mod error;
 mod histogram;
 mod image;
 mod lightness;
+mod thresholds;
 
 pub use composite::composite_over_white;
 pub use error::{Error, Result};
 pub use histogram::{BINS, histogram};
 pub use image::{BYTES_PER_PIXEL, Image};
 pub use lightness::lightness_map;
+pub use thresholds::{Algorithm, MAX_BUCKETS, MIN_BUCKETS, Thresholds, thresholds};

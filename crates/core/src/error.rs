@@ -11,6 +11,8 @@ pub enum Error {
     BufferLength { expected: usize, actual: usize },
     /// `width × height × 4` doesn't fit in `usize` (32 bits on wasm32).
     TooLarge { width: u32, height: u32 },
+    /// A value study's bucket count is outside 2..=10.
+    BucketCount { n: u8 },
 }
 
 /// Result type used throughout prep-core.
@@ -27,6 +29,9 @@ impl fmt::Display for Error {
             }
             Error::TooLarge { width, height } => {
                 write!(f, "image is too large to process ({width} × {height})")
+            }
+            Error::BucketCount { n } => {
+                write!(f, "{n} buckets requested, expected 2 to 10")
             }
         }
     }
