@@ -3,6 +3,13 @@
 Personal PWA for iPhone: grid overlays and value studies for painting reference photos.
 Dev machine: Ubuntu laptop. No Mac, so no Safari Web Inspector. Use the in-app debug panel and Playwright WebKit (spec §7).
 Read `docs/spec.md` before planning any change. Log significant decisions in `docs/decisions.md`.
+Start Claude Code in this folder (`painting-prep/`), not its parent `PaintingPrepApp/`. The parent isn't a git repo, so `/diff` and git commands there see nothing.
+
+## Status
+Update this at the end of each session.
+- Done: M0; M1.1 mirror scoping (D18); M1.2 `Image` + `Error`; M1.3 colour math; M1.4 `composite_over_white` (D19); M1.5 `lightness_map`; M1.6 `histogram` + `BINS`.
+- Next, M1.7: `thresholds` with equal intervals over the full L\* scale (D10), as bin indices (D12), ties to the upper bucket (spec §6). Then `bucket_greys`, `posterize`, and the CLI (`prep values`), which completes M1.
+- Decide in M1: spec open question 1 (default output greys), by comparing both modes in the CLI on real photos.
 
 ## Layout
 - `crates/core` (package `prep-core`) — all image logic. Pure Rust, no wasm/web/decoding deps. RGBA8 in, RGBA8 out.
@@ -26,8 +33,9 @@ Keep these commands up to date as tooling is set up.
 - `prep-core` denies `clippy::unwrap_used` and `clippy::expect_used` outside tests, so clippy enforces the no-unwrap rule.
 
 ## Workflow
-- One feature per session. Use plan mode for anything touching more than one crate.
-- Run the full check command before proposing a commit. Keep commits small.
+- One feature per commit. Several small features in one session are fine. Start a new session for large features or anything touching more than one crate, and use plan mode for multi-crate work.
+- Run the full check command before proposing a commit. Keep commits small. Commit messages start with the milestone step (`M1.6: ...`).
+- Claude can't push: the GitHub SSH key has a passphrase, and Claude's shell can't reach the SSH agent. After a commit, the user pushes from their own terminal, or runs `! GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ed25519_github -o IdentitiesOnly=yes' git push origin main` in the prompt.
 - If implementation contradicts the spec, stop and propose a spec change rather than silently diverging.
 - End each session by updating this file (new conventions, gotchas) and `docs/decisions.md`.
 
@@ -37,10 +45,16 @@ Keep these commands up to date as tooling is set up.
 - No `unwrap`/`expect` in library code paths of `core`. Return `Result` for invalid input (zero size, buffer length mismatch).
 - Colour values: `f32` L\* in 0..=100; sRGB as `u8`. Name conversions explicitly (`srgb_to_linear`, `y_to_lstar`).
 - Every new algorithm gets known-value tests and at least one property test.
+- Pixel loops use `as_chunks::<BYTES_PER_PIXEL>()` / `as_chunks_mut`, which give `[u8; 4]` arrays. The pinned clippy rejects `chunks_exact(4)` with a constant size (`chunks_exact_to_as_chunks`), and CI fails on it.
+- Validate a mutable RGBA buffer with `image::check_rgba_len`, the same rule `Image::new` uses.
+- Prefer fixed-size array types over runtime length checks where the size is a constant (e.g. `&mut [u32; BINS]`).
+- `histogram::lstar_to_bin` is the only L\* → bin mapping. Posterize and thresholds must use it, never their own rounding (D12).
+- A `pub(crate)` function that only tests use yet gets `#[cfg_attr(not(test), expect(dead_code, reason = "used by ..."))]`. Delete the attribute when the compiler warns that it's no longer needed.
 
 ## Don't
 - Don't compute lightness as the RGB average or luma on gamma-encoded values. Use sRGB → linear → Y → L\*.
 - Don't approximate the sRGB transfer function with a plain 2.2 gamma.
+- Don't handle alpha after load. `composite_over_white` flattens it once on the stored sRGB bytes (D19), and everything later assumes opaque pixels. Other transparency options are deferred enhancements listed in D19.
 - Don't decode images in Rust on the web path. The browser decodes (orientation, HEIC, colour space).
 - Don't add JS dependencies, frameworks, or a bundler without asking.
 - Don't store images in localStorage/IndexedDB. Only the small versioned settings object (spec F5).
