@@ -1,2 +1,213 @@
 //! wasm-bindgen bindings over prep-core. Thin wrapper only; all logic lives in
 //! prep-core (spec §5). Target: `wasm32-unknown-unknown`, single-threaded (D5).
+//!
+//! [`Processor`] owns the buffers of the preview pipeline (spec §5) and keeps
+//! them between photos and renders, because wasm memory never shrinks
+//! (spec §7). JS reads the output in place: it builds an `ImageData` on a
+//! view of wasm memory at [`Processor::output_ptr`], after [`Processor::render`]
+//! and before the next call that may allocate.
+
+use prep_core::{
+    Algorithm, BINS, BYTES_PER_PIXEL, OutputGreys, bucket_counts, bucket_greys,
+    composite_over_white, histogram, lightness_map, posterize, thresholds,
+};
+use wasm_bindgen::prelude::*;
+
+/// The value-study pipeline for one photo at a time.
+#[wasm_bindgen]
+pub struct Processor {
+    /// L\* map of the loaded photo; never modified after load (D15).
+    l: Vec<f32>,
+    hist: Box<[u32; BINS]>,
+    /// The last rendered study, RGBA8.
+    out: Vec<u8>,
+    greys: Vec<u8>,
+    counts: Vec<u64>,
+    /// 0 × 0 until a photo is loaded, so `render` fails with `ZeroSize`.
+    width: u32,
+    height: u32,
+}
+
+impl Default for Processor {
+    fn default() -> Self {
+        Processor {
+            l: Vec::new(),
+            hist: Box::new([0; BINS]),
+            out: Vec::new(),
+            greys: Vec::new(),
+            counts: Vec::new(),
+            width: 0,
+            height: 0,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl Processor {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Processor {
+        Processor::default()
+    }
+
+    /// Loads a photo: `rgba` is `width × height` RGBA8, as read from a
+    /// canvas. Composites it over white (D19), then computes its L\* map and
+    /// histogram. Clears the last study.
+    #[wasm_bindgen(js_name = load)]
+    pub fn load_js(&mut self, rgba: Vec<u8>, width: u32, height: u32) -> Result<(), JsError> {
+        Ok(self.load(rgba, width, height)?)
+    }
+
+    /// Renders the equal-interval study with `n` buckets (2..=10) into the
+    /// output buffer. `bucket_mean` picks the output greys (D20).
+    #[wasm_bindgen(js_name = render)]
+    pub fn render_js(&mut self, n: u8, bucket_mean: bool) -> Result<(), JsError> {
+        Ok(self.render(n, bucket_mean)?)
+    }
+
+    /// Address of the output RGBA8 in wasm memory. Valid until the next
+    /// `load` or `render`.
+    pub fn output_ptr(&self) -> *const u8 {
+        self.out.as_ptr()
+    }
+
+    /// Length of the output in bytes: `width × height × 4` after a render.
+    pub fn output_len(&self) -> usize {
+        self.out.len()
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// The sRGB grey of each bucket of the last render, darkest first.
+    pub fn greys(&self) -> Vec<u8> {
+        self.greys.clone()
+    }
+
+    /// Pixels per bucket of the last render, darkest first. `f64` so JS gets
+    /// plain numbers; exact for any image that fits in wasm memory.
+    pub fn counts(&self) -> Vec<f64> {
+        self.counts.iter().map(|&c| c as f64).collect()
+    }
+}
+
+impl Processor {
+    fn load(&mut self, mut rgba: Vec<u8>, width: u32, height: u32) -> prep_core::Result<()> {
+        // Stay unloaded if any step fails.
+        (self.width, self.height) = (0, 0);
+        self.out.clear();
+        self.greys.clear();
+        self.counts.clear();
+        composite_over_white(&mut rgba, width, height)?;
+        let img = prep_core::Image::new(&rgba, width, height)?;
+        self.l.resize(img.pixel_count(), 0.0);
+        lightness_map(&img, &mut self.l)?;
+        histogram(&self.l, &mut self.hist);
+        (self.width, self.height) = (width, height);
+        Ok(())
+    }
+
+    fn render(&mut self, n: u8, bucket_mean: bool) -> prep_core::Result<()> {
+        let mode = if bucket_mean {
+            OutputGreys::BucketMean
+        } else {
+            OutputGreys::EvenlySpaced
+        };
+        let t = thresholds(&self.hist, n, Algorithm::EqualIntervals)?;
+        self.greys = bucket_greys(&self.hist, &t, mode);
+        self.counts = bucket_counts(&self.hist, &t);
+        self.out.resize(self.l.len() * BYTES_PER_PIXEL, 0);
+        posterize(
+            &self.l,
+            &t,
+            &self.greys,
+            &mut self.out,
+            self.width,
+            self.height,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prep_core::Error;
+
+    /// One row of opaque greys.
+    fn row(greys: &[u8]) -> Vec<u8> {
+        greys.iter().flat_map(|&g| [g, g, g, 255]).collect()
+    }
+
+    #[test]
+    fn two_tone_study_with_two_buckets() {
+        let mut p = Processor::new();
+        p.load(row(&[30, 220, 220, 220]), 4, 1).unwrap();
+        p.render(2, false).unwrap();
+        assert_eq!(p.out, row(&[0, 255, 255, 255]));
+        assert_eq!(p.greys(), vec![0, 255]);
+        assert_eq!(p.counts(), vec![1.0, 3.0]);
+        assert_eq!((p.width(), p.height()), (4, 1));
+        assert_eq!(p.output_len(), 16);
+    }
+
+    #[test]
+    fn bucket_mean_keeps_the_photo_greys() {
+        let mut p = Processor::new();
+        p.load(row(&[30, 220]), 2, 1).unwrap();
+        p.render(2, true).unwrap();
+        assert_eq!(p.out, row(&[30, 220]));
+    }
+
+    #[test]
+    fn transparent_input_is_composited_over_white() {
+        let mut p = Processor::new();
+        p.load(vec![0, 0, 0, 0, 0, 0, 0, 255], 2, 1).unwrap();
+        p.render(2, false).unwrap();
+        assert_eq!(p.out, row(&[255, 0]));
+    }
+
+    #[test]
+    fn bad_bucket_count_is_an_error() {
+        let mut p = Processor::new();
+        p.load(row(&[0]), 1, 1).unwrap();
+        assert_eq!(p.render(11, false), Err(Error::BucketCount { n: 11 }));
+    }
+
+    #[test]
+    fn render_before_load_is_an_error() {
+        let mut p = Processor::new();
+        assert_eq!(
+            p.render(5, false),
+            Err(Error::ZeroSize {
+                width: 0,
+                height: 0
+            })
+        );
+    }
+
+    #[test]
+    fn failed_load_leaves_the_processor_unloaded() {
+        let mut p = Processor::new();
+        p.load(row(&[0, 0]), 2, 1).unwrap();
+        p.render(2, false).unwrap();
+        assert!(p.load(row(&[0]), 2, 1).is_err());
+        assert_eq!((p.width(), p.height(), p.output_len()), (0, 0, 0));
+        assert!(p.render(2, false).is_err());
+    }
+
+    #[test]
+    fn buffers_are_reused_across_photos() {
+        let mut p = Processor::new();
+        p.load(row(&[10; 64]), 8, 8).unwrap();
+        p.render(5, false).unwrap();
+        let (l_cap, out_cap) = (p.l.capacity(), p.out.capacity());
+        p.load(row(&[200; 16]), 4, 4).unwrap();
+        p.render(5, false).unwrap();
+        assert_eq!((p.l.capacity(), p.out.capacity()), (l_cap, out_cap));
+        assert_eq!(p.output_len(), 64);
+    }
+}

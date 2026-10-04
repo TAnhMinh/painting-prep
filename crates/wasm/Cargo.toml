@@ -9,6 +9,8 @@ publish.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-# wasm-bindgen is added in M2 and pinned with `=` to match the CLI (spec §5).
 [dependencies]
 prep-core.workspace = true
+# Pinned with `=`: the wasm-bindgen CLI must be exactly this version (spec §5,
+# D22). scripts/build-web.sh checks it.
+wasm-bindgen = "=0.2.129"

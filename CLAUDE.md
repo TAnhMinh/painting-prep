@@ -22,7 +22,7 @@ Update this at the end of each session.
 Keep these commands up to date as tooling is set up.
 - Full check (same as CI, `.github/workflows/ci.yml`): `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo check -p prep-wasm --target wasm32-unknown-unknown`
 - CLI (binary `prep`): `cargo run --release -p prep-cli -- values -n 5 --greys both in.jpg out.png`. `--greys even|mean|both`; `both` writes original | evenly spaced | bucket mean side by side. Prints the legend. `--help` lists all flags.
-- wasm build: target `wasm32-unknown-unknown`, single-threaded (spec §5). Exact tool TBD in M2; verify the currently recommended toolchain (wasm-bindgen CLI / wasm-pack / trunk) before choosing. The `wasm-bindgen` CLI and crate versions must match exactly.
+- wasm build: `scripts/build-web.sh` (cargo build for `wasm32-unknown-unknown`, then `wasm-bindgen --target web` into `web/pkg/`; D22). Needs `cargo install wasm-bindgen-cli --version 0.2.129 --locked`; the script fails if the CLI doesn't match `Cargo.lock`. Bump the crate pin and the CLI together.
 - Browser tests: Playwright WebKit on Ubuntu (set up in M2).
 
 ## Toolchain (D17)
