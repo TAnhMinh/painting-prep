@@ -23,7 +23,8 @@ Keep these commands up to date as tooling is set up.
 - Full check (same as CI, `.github/workflows/ci.yml`): `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo check -p prep-wasm --target wasm32-unknown-unknown`
 - CLI (binary `prep`): `cargo run --release -p prep-cli -- values -n 5 --greys both in.jpg out.png`. `--greys even|mean|both`; `both` writes original | evenly spaced | bucket mean side by side. Prints the legend. `--help` lists all flags.
 - wasm build: `scripts/build-web.sh` (cargo build for `wasm32-unknown-unknown`, then `wasm-bindgen --target web` into `web/pkg/`; D22). Needs `cargo install wasm-bindgen-cli --version 0.2.129 --locked`; the script fails if the CLI doesn't match `Cargo.lock`. Bump the crate pin and the CLI together.
-- Browser tests: Playwright WebKit on Ubuntu (set up in M2).
+- Dev server: `python3 -m http.server 8000 --bind 0.0.0.0 -d web` (after the wasm build). Plain HTTP on the LAN: no service worker or Web Share (spec §7).
+- Browser test (Playwright WebKit, spec §8): once, `python3 -m venv .venv && .venv/bin/pip install -r tests/web/requirements.txt && .venv/bin/playwright install webkit` (Ubuntu 26.04 needs Playwright ≥ 1.61, plus `sudo apt-get install libflite1 libavif16 libmanette-0.2-0`). Then `scripts/build-web.sh && .venv/bin/python tests/web/test_smoke.py`. It compares the page's study with `prep values` on `tests/web/fixture.png` (from `make_fixture.py`), byte for byte.
 
 ## Toolchain (D17)
 - Rust is pinned in `rust-toolchain.toml` (1.98.1, with rustfmt, clippy, wasm32). Bump it deliberately, together with `rust-version` in `Cargo.toml`.
