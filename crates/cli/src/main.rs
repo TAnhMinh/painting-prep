@@ -41,8 +41,8 @@ struct ValuesArgs {
     n: u8,
 
     /// Output greys: evenly spaced L*, each bucket's mean L*, or both, side
-    /// by side with the original.
-    #[arg(long, value_enum, default_value_t = Greys::Both)]
+    /// by side with the original (original | even | mean).
+    #[arg(long, value_enum, default_value_t = Greys::Even)]
     greys: Greys,
 
     /// Input image (JPEG or PNG).

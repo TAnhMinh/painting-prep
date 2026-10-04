@@ -100,8 +100,9 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 
 ## D20 — Both output-grey modes stay user-selectable (2026-10-04)
 - **Alternatives:** Pick one mode in M1 and drop the other.
-- **Decision:** Evenly spaced and bucket mean are both an option in the app and the CLI (`--greys even|mean|both`), persisted with the other settings (F5). Open question 1 only decides the default.
+- **Decision:** Evenly spaced and bucket mean are both an option in the app and the CLI (`--greys even|mean|both`), persisted with the other settings (F5). **Evenly spaced is the default** (open question 1, decided 2026-10-04).
 - **Why:** They answer different questions. Evenly spaced is a fixed value scale you can pre-mix paints for, the same for every photo; bucket mean shows how light each region really is. Which one is useful depends on the photo and the painting. Core already takes the mode as a parameter, so keeping both costs only one UI control.
+- **Default chosen by comparing both on 3 real photos with the CLI:** evenly spaced separates the big shapes clearly (true black and white, the same scale for every photo), which is what a value study is for. Bucket mean squeezed the greys into about L\* 9–89, and on a flat overcast photo its middle buckets (L\* 31, 51, 68) blended together.
 
 ## D21 — CLI: clap, `image` with JPEG/PNG only, no ICC conversion (2026-10-04)
 - **Decision:** `prep` parses arguments with clap (derive), and decodes with `image` 0.25 with only the `jpeg` and `png` features (no rayon, no other formats). EXIF orientation is applied on load, as the browser does. The pipeline runs at full resolution.

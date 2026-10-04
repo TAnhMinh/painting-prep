@@ -1,6 +1,6 @@
 # Painting Prep — Specification
 
-*Status: draft v0.4 (28 Sep 2026). The repo is the source of truth: update this file when implementation proves it wrong, and log the reason in `docs/decisions.md`.*
+*Status: draft v0.5 (4 Oct 2026). The repo is the source of truth: update this file when implementation proves it wrong, and log the reason in `docs/decisions.md`.*
 
 ## 1. Purpose
 
@@ -41,7 +41,7 @@ Secondary goal: learn the agentic coding workflow (spec → plan → one feature
 - Output greys, a user setting with two modes (D20):
   - **Evenly spaced:** bucket *i* is displayed as an evenly spaced L\* value from 0 to 100, converted back to sRGB. A painter's value scale, the same for every photo.
   - **Bucket mean:** each bucket is displayed as the mean L\* of its pixels, truer to the photo.
-  - Which mode is the default is open question 1.
+  - Evenly spaced is the default (D20).
 - Live preview while adjusting n, algorithm, and blur.
 - Non-destructive: every change is recomputed from the original (§5), so going from 3 to 4 values and back to 3 gives the identical study.
 - Compare: hold to see the original, or show it side by side. A pinned snapshot (F6) can be the comparison instead of the original.
@@ -220,9 +220,11 @@ Each milestone is one or a few Claude Code sessions, committed when green.
 
 ## 10. Open questions
 
-1. Default output greys: evenly spaced full scale (painterly value scale) or bucket means (truer to the photo)? Both stay selectable (D20); this only picks the default. **Decide in M1** by having the CLI output both for the same photos.
+1. ~~Default output greys~~: resolved in v0.5, evenly spaced (D20).
 2. Grid mode A: highlight the partial last cell, or offer to centre the grid instead? **Decide in M3** after trying both.
 3. Does WebKit honour `createImageBitmap` resize options, and what is the real canvas limit on the device? **Check in M2.**
+
+Resolved in v0.5: default output greys are evenly spaced; both modes stay selectable (D20).
 
 Resolved in v0.2: no Mac available (→ §7 debugging, D6); n range 2–10 with legend strip (F2); settings persist (F5, D7).
 

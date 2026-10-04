@@ -6,11 +6,12 @@ use crate::image::{BYTES_PER_PIXEL, check_rgba_len};
 use crate::thresholds::Thresholds;
 use crate::{Error, Result};
 
-/// How each bucket's output grey is chosen (spec F2, open question 1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How each bucket's output grey is chosen: a user setting (spec F2, D20).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputGreys {
     /// Bucket `i` of `n` is L\* `100 × i / (n - 1)`: a painter's value scale
-    /// from black to white.
+    /// from black to white. The default (D20).
+    #[default]
     EvenlySpaced,
     /// Each bucket is the mean L\* of its pixels, truer to the photo. An
     /// empty bucket keeps its evenly spaced grey (spec §6).

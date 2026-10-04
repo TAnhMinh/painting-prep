@@ -7,15 +7,15 @@ Start Claude Code in this folder (`painting-prep/`), not its parent `PaintingPre
 
 ## Status
 Update this at the end of each session.
-- Done: M0; M1.1 mirror scoping (D18); M1.2 `Image` + `Error`; M1.3 colour math; M1.4 `composite_over_white` (D19); M1.5 `lightness_map`; M1.6 `histogram` + `BINS`.
-- Next, M1.7: `thresholds` with equal intervals over the full L\* scale (D10), as bin indices (D12), ties to the upper bucket (spec §6). Then `bucket_greys`, `posterize`, and the CLI (`prep values`), which completes M1.
-- Decide in M1: spec open question 1 (default output greys), by comparing both modes in the CLI on real photos.
+- Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI, checked on 3 real photos). Open question 1 decided: evenly spaced greys by default, bucket mean selectable (D20).
+- Next, M2: UI sketch; wasm bindings + minimal page (pick photo, slider for n, debug panel); Playwright WebKit test (spec §9). Plan it first: it spans `prep-wasm` and `web/`, and the wasm build tool must be chosen (see Commands).
 
 ## Layout
 - `crates/core` (package `prep-core`) — all image logic. Pure Rust, no wasm/web/decoding deps. RGBA8 in, RGBA8 out.
 - `crates/cli` (package `prep-cli`, binary `prep`) — desktop harness for core (uses `image` for decode/encode).
 - `crates/wasm` (package `prep-wasm`) — thin wasm-bindgen wrapper. No logic here.
 - Never name a package `core`: it shadows Rust's built-in `core` crate (D8).
+- Real test photos live in `../test_photos/` (outside the repo, never committed); CLI output goes to `../test_photos/out/`.
 - `web/` — vanilla HTML/CSS/JS (ES modules), manifest, service worker. No framework, no bundler. `web/pkg/` is generated, not committed.
 
 ## Commands
@@ -35,7 +35,7 @@ Keep these commands up to date as tooling is set up.
 ## Workflow
 - One feature per commit. Several small features in one session are fine. Start a new session for large features or anything touching more than one crate, and use plan mode for multi-crate work.
 - Run the full check command before proposing a commit. Keep commits small. Commit messages start with the milestone step (`M1.6: ...`).
-- Claude can't push: the GitHub SSH key has a passphrase, and Claude's shell can't reach the SSH agent. After a commit, the user pushes from their own terminal, or runs `! GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ed25519_github -o IdentitiesOnly=yes' git push origin main` in the prompt.
+- Claude can push with plain `git push origin main` (works since 2026-10-04). Push only when the user asks.
 - If implementation contradicts the spec, stop and propose a spec change rather than silently diverging.
 - End each session by updating this file (new conventions, gotchas) and `docs/decisions.md`.
 
