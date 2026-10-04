@@ -4,7 +4,7 @@
 pub const BINS: usize = 1001;
 
 /// Bins per unit of L\*.
-const BINS_PER_LSTAR: f32 = 10.0;
+pub(crate) const BINS_PER_LSTAR: f32 = 10.0;
 
 /// The bin of an L\* value: `round(l × 10)`, clamped to `0..BINS`.
 ///

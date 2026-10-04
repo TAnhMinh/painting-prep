@@ -46,7 +46,6 @@ impl Thresholds {
 
     /// The bucket of histogram bin `bin`, in `0..n`: the number of cuts at
     /// or below it, so ties go to the upper bucket (spec §6).
-    #[cfg_attr(not(test), expect(dead_code, reason = "used by posterize (M1.8)"))]
     pub(crate) fn bucket(&self, bin: usize) -> usize {
         self.cuts().partition_point(|&cut| cut <= bin)
     }

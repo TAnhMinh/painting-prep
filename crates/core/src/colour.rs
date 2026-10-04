@@ -20,9 +20,6 @@ pub(crate) fn srgb_to_linear(v: u8) -> f32 {
 }
 
 /// Encodes linear light to the nearest sRGB byte. Input is clamped to 0..=1.
-// Only the tests use this so far. `expect` warns once that changes, as a
-// reminder to delete the attribute.
-#[cfg_attr(not(test), expect(dead_code, reason = "used by bucket_greys (M1)"))]
 pub(crate) fn linear_to_srgb(linear: f32) -> u8 {
     let l = linear.clamp(0.0, 1.0);
     let c = if l <= 0.003_130_8 {
@@ -49,9 +46,6 @@ pub(crate) fn y_to_lstar(y: f32) -> f32 {
 }
 
 /// Luminance Y in 0..=1 from CIE L\* in 0..=100. Inverse of [`y_to_lstar`].
-// Only the tests use this so far. `expect` warns once that changes, as a
-// reminder to delete the attribute.
-#[cfg_attr(not(test), expect(dead_code, reason = "used by bucket_greys (M1)"))]
 pub(crate) fn lstar_to_y(lstar: f32) -> f32 {
     // κ·ε = 8: the L* where the two segments meet.
     if lstar > KAPPA * EPSILON {

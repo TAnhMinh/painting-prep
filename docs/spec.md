@@ -150,8 +150,8 @@ pub fn lightness_map(img: &Image, out: &mut [f32]) -> Result<()>;      // L* per
 pub fn blur_lightness(l: &mut [f32], scratch: &mut [f32], w: u32, h: u32, sigma_px: f32) -> Result<()>;
 pub fn histogram(l: &[f32], hist: &mut [u32; BINS]);                   // BINS = 1001, bin = round(L* × 10), clamped
 pub fn thresholds(hist: &[u32; BINS], n: u8, algo: Algorithm) -> Result<Thresholds>; // n-1 cut points as bin indices; n outside 2..=10 is an error
-pub fn bucket_greys(hist: &[u32], t: &Thresholds, mode: OutputGreys) -> Vec<u8>; // n sRGB greys
-pub fn posterize(l: &[f32], t: &Thresholds, greys: &[u8], out_rgba: &mut [u8]) -> Result<()>;
+pub fn bucket_greys(hist: &[u32; BINS], t: &Thresholds, mode: OutputGreys) -> Vec<u8>; // n sRGB greys, dark to light
+pub fn posterize(l: &[f32], t: &Thresholds, greys: &[u8], out_rgba: &mut [u8], w: u32, h: u32) -> Result<()>;
 pub fn grid_lines(w: u32, h: u32, spec: &GridSpec) -> Vec<Line>;        // geometry only
 ```
 
