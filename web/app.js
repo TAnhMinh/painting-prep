@@ -1,0 +1,255 @@
+// Painting Prep: pick a photo, decode it to the preview size, and show its
+// value study (spec F1, F2). All image logic runs in prep-core via wasm.
+
+import init, { Processor } from "./pkg/prep_wasm.js";
+
+/** Preview working size: long side in px (spec §7). */
+const PREVIEW_LONG_SIDE = 2048;
+
+const $ = (id) => document.getElementById(id);
+const els = {
+  file: $("file"),
+  chooseBig: $("choose-big"),
+  preview: $("preview"),
+  n: $("n"),
+  nValue: $("n-value"),
+  status: $("status"),
+  error: $("error"),
+  errorText: $("error-text"),
+  errorClose: $("error-close"),
+};
+
+const state = {
+  wasm: null,
+  processor: null,
+  loaded: false,
+  n: Number(els.n.value),
+  bucketMean: $("greys-mean").checked,
+  renderQueued: false,
+};
+
+/** Facts about the current photo and the last run, for the debug panel. */
+export const stats = {
+  source: null, // { width, height }
+  working: null, // { width, height }
+  decodePath: null,
+  timings: {}, // step → ms
+};
+
+/** Runs `fn` and records its duration under `label`. */
+async function timed(label, fn) {
+  const t0 = performance.now();
+  try {
+    return await fn();
+  } finally {
+    stats.timings[label] = performance.now() - t0;
+  }
+}
+
+function showError(message) {
+  els.errorText.textContent = message;
+  els.error.hidden = false;
+}
+
+function clearError() {
+  els.error.hidden = true;
+}
+
+/** Working size for a `w × h` source: long side at most `limit`, never upscaled. */
+function workingSize(w, h, limit) {
+  const scale = Math.min(1, limit / Math.max(w, h));
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+}
+
+/**
+ * Decodes `file` straight to the working size and returns its sRGB pixels
+ * (spec F1). Never draws the full-resolution photo into a canvas.
+ */
+async function decodeToWorkingSize(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    // <img> applies EXIF orientation, so its natural size is the oriented size.
+    const img = new Image();
+    img.src = url;
+    try {
+      await timed("decode", () => img.decode());
+    } catch {
+      throw new Error("this browser can't read it as an image.");
+    }
+    const source = { width: img.naturalWidth, height: img.naturalHeight };
+    const target = workingSize(source.width, source.height, PREVIEW_LONG_SIDE);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const ctx = canvas.getContext("2d", { colorSpace: "srgb", willReadFrequently: true });
+    // White under the photo: a second guard for transparent input (D19).
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, target.width, target.height);
+    ctx.imageSmoothingQuality = "high";
+
+    const decodePath = await timed("draw", () => drawScaled(ctx, file, img, source, target));
+    const imageData = await timed("getImageData", () =>
+      ctx.getImageData(0, 0, target.width, target.height, { colorSpace: "srgb" }),
+    );
+    // Release the canvas backing store now rather than at GC.
+    canvas.width = canvas.height = 0;
+    return { imageData, source, target, decodePath };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Draws the photo into `ctx` at `target` size. Prefers a resizing
+ * `createImageBitmap` (decodes once at the small size), and falls back to
+ * `drawImage` with a destination size. Returns which path ran, which answers
+ * spec open question 3 on the device.
+ */
+async function drawScaled(ctx, file, img, source, target) {
+  if (target.width === source.width && target.height === source.height) {
+    ctx.drawImage(img, 0, 0);
+    return "drawImage, no resize";
+  }
+  let bitmap = null;
+  try {
+    // Only the width is given, so the height shows whether the bitmap kept the
+    // oriented aspect ratio. It doesn't if orientation or resizing is ignored.
+    bitmap = await createImageBitmap(file, {
+      resizeWidth: target.width,
+      resizeQuality: "high",
+      imageOrientation: "from-image",
+    });
+    if (bitmap.width === target.width && Math.abs(bitmap.height - target.height) <= 1) {
+      ctx.drawImage(bitmap, 0, 0, target.width, target.height);
+      return "createImageBitmap resize";
+    }
+    console.warn(
+      `createImageBitmap gave ${bitmap.width} × ${bitmap.height}, ` +
+        `expected ${target.width} × ${target.height}; using drawImage`,
+    );
+  } catch (e) {
+    console.warn(`createImageBitmap resize failed (${e}); using drawImage`);
+  } finally {
+    bitmap?.close();
+  }
+  ctx.drawImage(img, 0, 0, target.width, target.height);
+  return "drawImage resize";
+}
+
+async function loadPhoto(file) {
+  clearError();
+  document.body.dataset.busy = "true";
+  els.status.textContent = "Loading…";
+  stats.timings = {};
+  try {
+    const { imageData, source, target, decodePath } = await decodeToWorkingSize(file);
+    state.loaded = false;
+    try {
+      await timed("load", () =>
+        state.processor.load(new Uint8Array(imageData.data.buffer), target.width, target.height),
+      );
+    } catch (e) {
+      // A trap (e.g. out of memory) can leave the processor unusable; start over.
+      state.processor.free();
+      state.processor = new Processor();
+      els.preview.hidden = true;
+      els.chooseBig.hidden = false;
+      throw e;
+    }
+    Object.assign(stats, { source, working: target, decodePath });
+    els.preview.width = target.width;
+    els.preview.height = target.height;
+    state.loaded = true;
+    render();
+    els.preview.hidden = false;
+    els.chooseBig.hidden = true;
+    els.status.textContent =
+      `${source.width} × ${source.height}` +
+      (decodePath === "drawImage, no resize" ? "" : ` → ${target.width} × ${target.height}`);
+    console.info(`loaded ${els.status.textContent} via ${decodePath}`, stats.timings);
+  } catch (e) {
+    console.error(e);
+    els.status.textContent = "";
+    showError(`Couldn't open that photo: ${e.message ?? e}`);
+  } finally {
+    delete document.body.dataset.busy;
+    els.file.value = ""; // lets the same file be picked again
+  }
+}
+
+/** Renders the study for the current settings into the preview canvas. */
+function render() {
+  if (!state.loaded) return;
+  try {
+    const p = state.processor;
+    timedSync("render", () => p.render(state.n, state.bucketMean));
+    timedSync("putImageData", () => {
+      // A view on wasm memory, made after render's allocations (spec §7).
+      const view = new Uint8ClampedArray(state.wasm.memory.buffer, p.output_ptr(), p.output_len());
+      const ctx = els.preview.getContext("2d", { colorSpace: "srgb" });
+      ctx.putImageData(new ImageData(view, p.width(), p.height()), 0, 0);
+    });
+    // Signals the finished render to the WebKit smoke test.
+    els.preview.dataset.rendered = `${state.n},${state.bucketMean ? "mean" : "even"}`;
+  } catch (e) {
+    console.error(e);
+    showError(`Couldn't render the study: ${e.message ?? e}`);
+  }
+}
+
+function timedSync(label, fn) {
+  const t0 = performance.now();
+  try {
+    return fn();
+  } finally {
+    stats.timings[label] = performance.now() - t0;
+  }
+}
+
+/** Coalesces slider events into at most one render per frame. */
+function queueRender() {
+  if (state.renderQueued) return;
+  state.renderQueued = true;
+  requestAnimationFrame(() => {
+    state.renderQueued = false;
+    render();
+  });
+}
+
+function bindEvents() {
+  els.file.addEventListener("change", () => {
+    const file = els.file.files?.[0];
+    if (file) loadPhoto(file);
+  });
+  els.n.addEventListener("input", () => {
+    state.n = Number(els.n.value);
+    els.nValue.textContent = state.n;
+    queueRender();
+  });
+  for (const radio of document.querySelectorAll('input[name="greys"]')) {
+    radio.addEventListener("change", () => {
+      state.bucketMean = radio.value === "mean" && radio.checked;
+      render();
+    });
+  }
+  els.errorClose.addEventListener("click", clearError);
+}
+
+async function main() {
+  els.nValue.textContent = state.n; // the browser may restore form values
+  bindEvents();
+  try {
+    state.wasm = await init();
+    state.processor = new Processor();
+    document.body.dataset.wasm = "ready";
+  } catch (e) {
+    console.error(e);
+    showError(`Couldn't start the image engine: ${e.message ?? e}`);
+  }
+}
+
+main();
