@@ -26,7 +26,7 @@ Secondary goal: learn the agentic coding workflow (spec → plan → one feature
 - Orientation must be correct. EXIF rotation is applied by the browser decode path.
 - The image is converted to an sRGB RGBA8 buffer via canvas. iPhone photos are often Display P3; the canvas must use `colorSpace: "srgb"` so the core can assume sRGB. Out-of-gamut P3 colours clip; that is acceptable.
 - **Large images.** The decoded image is never drawn into a full-size canvas. It is drawn directly into a canvas at the working size (§7): the preview size on load, and the export size on export. Check whether WebKit honours `createImageBitmap` resize options; otherwise use `drawImage` with a destination size.
-- **Alpha.** Transparent input is composited over white. Output alpha is always 255.
+- **Alpha.** Transparent input is composited over white, once on load, in `prep-core` (`composite_over_white`), so the CLI and the web app give the same result. Output alpha is always 255. Photos have no alpha, so this is a guard for the occasional PNG; other ways of handling transparency are deferred (D19).
 - **Errors.** A failed decode or an allocation failure shows a readable message and leaves the app usable. It must not leave a blank screen.
 - **Session loss is accepted.** iOS may kill the backgrounded PWA. The loaded photo and the current view are then gone; the user reloads the photo, and settings come back from F5. No image is persisted to survive this (D7, D14).
 
@@ -85,6 +85,7 @@ Secondary goal: learn the agentic coding workflow (spec → plan → one feature
 - Android or desktop support. It will probably work, but it isn't tested or promised.
 - Crop to canvas aspect ratio. This is a candidate for v2.
 - RAW/ProRAW input, colour studies, layers, or cloud sync.
+- Transparency-aware studies (other background colours, excluding transparent pixels, transparent output). Candidates for later; see D19.
 - Persisted undo history or snapshots. Both are in memory only (F6).
 - Restoring the working session after iOS kills the app (F1).
 - Any JS framework or bundler (React, Vite, etc.) in v1.
@@ -144,6 +145,7 @@ Callers own the buffers so they can be reused between runs. The wasm crate wraps
 ```rust
 pub struct Image<'a> { rgba: &'a [u8], width: u32, height: u32 } // private; only Image::new(rgba, w, h) -> Result<Image> builds one, after validating
 
+pub fn composite_over_white(rgba: &mut [u8], w: u32, h: u32) -> Result<()>; // once on load, before the buffer becomes the original (D19)
 pub fn lightness_map(img: &Image, out: &mut [f32]) -> Result<()>;      // L* per pixel, 0..=100
 pub fn blur_lightness(l: &mut [f32], scratch: &mut [f32], w: u32, h: u32, sigma_px: f32) -> Result<()>;
 pub fn histogram(l: &[f32], hist: &mut [u32]);                          // BINS bins over 0..=100

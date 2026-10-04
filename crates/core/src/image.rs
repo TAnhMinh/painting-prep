@@ -27,16 +27,7 @@ impl<'a> Image<'a> {
     /// - [`Error::TooLarge`] if `width × height × 4` overflows `usize`.
     /// - [`Error::BufferLength`] if `rgba.len()` isn't `width × height × 4`.
     pub fn new(rgba: &'a [u8], width: u32, height: u32) -> Result<Self> {
-        if width == 0 || height == 0 {
-            return Err(Error::ZeroSize { width, height });
-        }
-        let expected = rgba_len(width, height).ok_or(Error::TooLarge { width, height })?;
-        if rgba.len() != expected {
-            return Err(Error::BufferLength {
-                expected,
-                actual: rgba.len(),
-            });
-        }
+        check_rgba_len(rgba.len(), width, height)?;
         Ok(Image {
             rgba,
             width,
@@ -61,6 +52,22 @@ impl<'a> Image<'a> {
     pub fn pixel_count(&self) -> usize {
         self.rgba.len() / BYTES_PER_PIXEL
     }
+}
+
+/// Checks that `len` bytes hold exactly a `width × height` RGBA8 image.
+/// Shared by [`Image::new`] and functions that take a mutable buffer.
+pub(crate) fn check_rgba_len(len: usize, width: u32, height: u32) -> Result<()> {
+    if width == 0 || height == 0 {
+        return Err(Error::ZeroSize { width, height });
+    }
+    let expected = rgba_len(width, height).ok_or(Error::TooLarge { width, height })?;
+    if len != expected {
+        return Err(Error::BufferLength {
+            expected,
+            actual: len,
+        });
+    }
+    Ok(())
 }
 
 /// `width × height × 4`, or `None` if it overflows `usize`.

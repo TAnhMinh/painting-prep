@@ -14,8 +14,10 @@
     expect(dead_code, reason = "used by lightness_map from M1 substep 4")
 )]
 mod colour;
+mod composite;
 mod error;
 mod image;
 
+pub use composite::composite_over_white;
 pub use error::{Error, Result};
 pub use image::{BYTES_PER_PIXEL, Image};

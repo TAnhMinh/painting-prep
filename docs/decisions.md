@@ -85,3 +85,15 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
   - A separate `CARGO_HOME` doesn't help. Cargo also reads every `.cargo/config.toml` in the parent directories of the working directory, so a repo under `$HOME` always picks up `~/.cargo/config.toml`.
 - **Consequence:** New work project folders need the mirror config copied in, or their builds go to crates.io. `Cargo.lock` records crates.io as the source either way, so lock files are portable.
 
+
+## D19 — Transparent input is composited over white in core (2026-10-04)
+- **Context:** A pixel's alpha (A) says how much of whatever is behind it shows through, but an image file doesn't say what is behind it. L\* needs one final colour per pixel, so the app has to choose a background. The RGB of fully transparent pixels is often junk (usually black). The app's input is photos (JPEG/HEIC), which have no alpha, so transparency only comes from the occasional PNG.
+- **Decision:** Keep spec F1: blend every pixel over white once on load (`shown = colour × a + white × (1 − a)`, a = A/255), then set A = 255. This is a `prep-core` function (`composite_over_white`), called by both the CLI and wasm, with known-value and property tests. The web path may also fill the canvas white before drawing, as a second guard.
+- **Blend space:** the stored sRGB bytes, not linear light. That is how browsers, Canvas 2D and image editors composite, so the result looks the way the PNG looked to whoever made it, and it matches the canvas guard exactly. Linear-light blending would be physically more correct but would differ from both. Integer math, rounded to the nearest byte; opaque pixels are skipped, so photos pay only a single comparison per pixel.
+- **Why:** Simplest option, and enough for photos. Everything after this step stays alpha-free. Doing it in core means the CLI (which decodes PNGs with `image`, not a canvas) and the phone give identical results.
+- **Known downside:** A transparent background counts as white pixels. With equal intervals (D10) this only inflates the lightest bucket's legend percentage. With quantiles or natural breaks, a large background shifts the thresholds.
+- **Rejected:** Using RGB as stored and ignoring alpha (junk RGB turns transparent areas black). Rejecting images with alpha (unfriendly, and costs as much as compositing).
+- **Deferred enhancements**, if non-photo input (cut-outs, digital art) ever matters:
+  1. *Exclude transparent pixels from the histogram:* still composite over white for display, but skip pixels with A = 0 when building the histogram. A cheap half-step that fixes the threshold shift.
+  2. *Other background colour:* composite over black, mid-grey (less disturbing for a value study), or a colour the user picks. Needs a setting (F5).
+  3. *Full alpha support:* weight the histogram by alpha, carry alpha through blur (transparent edges need care), posterize and export (PNG with alpha), and define how the preview shows transparent areas. The most correct option for cut-outs, and the most work.
