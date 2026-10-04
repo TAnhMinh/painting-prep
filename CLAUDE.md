@@ -7,9 +7,14 @@ Start Claude Code in this folder (`painting-prep/`), not its parent `PaintingPre
 
 ## Status
 Update this at the end of each session.
-- Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI). M2.1–M2.7: UI sketch (`docs/ui.md`), `prep-wasm` `Processor`, minimal page (photo, n slider with ticks, Even/Mean greys), debug panel, Playwright WebKit smoke test, CI job. On the iPhone (iOS 18.7), a 12 MP photo loads in about 0.6 s and `createImageBitmap` resize works (D23, open question 3).
-- To close M2: try a 48 MP photo if one is available, and confirm orientation and colours on the device. Push, and check that the new `webkit` CI job passes on its first run.
-- Next, M3: grid overlay (modes A and B, Canvas 2D). Decide open question 2 there.
+- Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI). M2.1–M2.8: UI sketch (`docs/ui.md`), `prep-wasm` `Processor`, minimal page (photo, n slider with ticks, Even/Mean greys), debug panel, Playwright WebKit smoke test (3 tests), CI `webkit` job, large-photo fix. On the iPhone (iOS 18.7, 12 MP camera), a 12 MP photo loads in about 0.6 s, values and orientation look right, and `createImageBitmap` resize works (D23, open question 3 resolved).
+- Open at the end of the 2026-10-04 session, in this order:
+  1. **Push M2.8** (`108a8c5`). Pushed up to `c27334a`; ask the user first.
+  2. **Check CI on GitHub.** The `webkit` job has never been confirmed green. `gh` isn't installed and the API returns 404 without a login (the repo looks private), so ask the user to check the Actions tab.
+  3. **Retest large photos on the iPhone with M2.8.** Before the fix, a 64 MP photo (8793 × 7331) gave a solid white study, and a 102 MP photo (11375 × 8992) crashed the page (D23). If the 102 MP photo still crashes, refuse sources above a measured pixel limit before decoding: the size is known from the `load` event. Then record the results in D23.
+  4. **Close M2:** mark it done here and in D23. Spec §9 asks for 48 MP or the largest available; the user's photos came from the internet, since their camera is 12 MP.
+- Next, M3: grid overlay (modes A and B, Canvas 2D). Decide open question 2 there. Plan it first: it spans `prep-core` (geometry), `prep-cli` (`prep grid`) and `web/`.
+- To test on the phone: run `scripts/build-web.sh`, then the dev server below, and open `http://<laptop LAN IP>:8000` on the iPhone. Safari caches `app.js`, so close and reopen the tab after changes. The user sends debug-panel screenshots into the parent folder `../`.
 
 ## Layout
 - `crates/core` (package `prep-core`) — all image logic. Pure Rust, no wasm/web/decoding deps. RGBA8 in, RGBA8 out.
