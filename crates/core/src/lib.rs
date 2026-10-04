@@ -7,17 +7,13 @@
 // CLAUDE.md: no `unwrap`/`expect` in library code; return `Result` instead.
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
-// Only the tests use colour so far; lightness_map (M1 substep 4) will.
-// `expect` warns once that changes, as a reminder to delete this attribute.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by lightness_map from M1 substep 4")
-)]
 mod colour;
 mod composite;
 mod error;
 mod image;
+mod lightness;
 
 pub use composite::composite_over_white;
 pub use error::{Error, Result};
 pub use image::{BYTES_PER_PIXEL, Image};
+pub use lightness::lightness_map;
