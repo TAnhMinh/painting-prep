@@ -7,8 +7,9 @@ Start Claude Code in this folder (`painting-prep/`), not its parent `PaintingPre
 
 ## Status
 Update this at the end of each session.
-- Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI, checked on 3 real photos). Open question 1 decided: evenly spaced greys by default, bucket mean selectable (D20).
-- Next, M2: UI sketch; wasm bindings + minimal page (pick photo, slider for n, debug panel); Playwright WebKit test (spec §9). Plan it first: it spans `prep-wasm` and `web/`, and the wasm build tool must be chosen (see Commands).
+- Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI). M2.1–M2.7: UI sketch (`docs/ui.md`), `prep-wasm` `Processor`, minimal page (photo, n slider with ticks, Even/Mean greys), debug panel, Playwright WebKit smoke test, CI job. On the iPhone (iOS 18.7), a 12 MP photo loads in about 0.6 s and `createImageBitmap` resize works (D23, open question 3).
+- To close M2: try a 48 MP photo if one is available, and confirm orientation and colours on the device. Push, and check that the new `webkit` CI job passes on its first run.
+- Next, M3: grid overlay (modes A and B, Canvas 2D). Decide open question 2 there.
 
 ## Layout
 - `crates/core` (package `prep-core`) — all image logic. Pure Rust, no wasm/web/decoding deps. RGBA8 in, RGBA8 out.
@@ -50,6 +51,9 @@ Keep these commands up to date as tooling is set up.
 - Validate a mutable RGBA buffer with `image::check_rgba_len`, the same rule `Image::new` uses.
 - Prefer fixed-size array types over runtime length checks where the size is a constant (e.g. `&mut [u32; BINS]`).
 - `histogram::lstar_to_bin` is the only L\* → bin mapping. Posterize and thresholds must use it, never their own rounding (D12).
+- The page exposes hooks the WebKit test relies on: `body[data-wasm=ready]`, `#preview[data-rendered="<n>,<even|mean>"]` after each render, and `window.prepDebug.errorCount`. Keep them when changing the page.
+- Segmented controls are radio inputs hidden behind their labels. In Playwright, click the `label[for=…]`, not the input.
+- Web layout uses named `grid-template-areas`. Elements that are sometimes `hidden` (the error banner) must have a named area, or the rows below them shift.
 - A `pub(crate)` function that only tests use yet gets `#[cfg_attr(not(test), expect(dead_code, reason = "used by ..."))]`. Delete the attribute when the compiler warns that it's no longer needed.
 
 ## Don't
@@ -69,3 +73,4 @@ Keep these commands up to date as tooling is set up.
 ## Where the AI was wrong
 Record concrete cases here, with date and what the fix was. This is part of the learning log.
 - 2026-10-03: proposed a repo `.cargo/config.toml` (later a separate `CARGO_HOME`) to bypass the global crates.io mirror. Neither works: config files can't delete inherited keys, and Cargo reads parent-directory configs up to `~/.cargo`. Fix: the user moved the mirror config into the work folders (D18). Lesson: test config overrides with a dry run before planning around them.
+- 2026-10-04: the first M2 page layout placed grid items implicitly. When the error banner was hidden, the preview moved into an `auto` row: the title bar vanished and the controls overflowed. Caught in a Playwright screenshot before committing. Fix: named grid areas. Lesson: screenshot new layouts in WebKit at phone size before calling them done.

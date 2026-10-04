@@ -25,7 +25,7 @@ Secondary goal: learn the agentic coding workflow (spec → plan → one feature
 - The browser decodes the image, not Rust (see D2).
 - Orientation must be correct. EXIF rotation is applied by the browser decode path.
 - The image is converted to an sRGB RGBA8 buffer via canvas. iPhone photos are often Display P3; the canvas must use `colorSpace: "srgb"` so the core can assume sRGB. Out-of-gamut P3 colours clip; that is acceptable.
-- **Large images.** The decoded image is never drawn into a full-size canvas. It is drawn directly into a canvas at the working size (§7): the preview size on load, and the export size on export. Check whether WebKit honours `createImageBitmap` resize options; otherwise use `drawImage` with a destination size.
+- **Large images.** The decoded image is never drawn into a full-size canvas. It is drawn directly into a canvas at the working size (§7): the preview size on load, and the export size on export. The app uses `createImageBitmap` with resize options, which iOS 18.7 honours (D23). If the result has the wrong size, it falls back to `drawImage` with a destination size.
 - **Alpha.** Transparent input is composited over white, once on load, in `prep-core` (`composite_over_white`), so the CLI and the web app give the same result. Output alpha is always 255. Photos have no alpha, so this is a guard for the occasional PNG; other ways of handling transparency are deferred (D19).
 - **Errors.** A failed decode or an allocation failure shows a readable message and leaves the app usable. It must not leave a blank screen.
 - **Session loss is accepted.** iOS may kill the backgrounded PWA. The loaded photo and the current view are then gone; the user reloads the photo, and settings come back from F5. No image is persisted to survive this (D7, D14).
@@ -222,7 +222,7 @@ Each milestone is one or a few Claude Code sessions, committed when green.
 
 1. ~~Default output greys~~: resolved in v0.5, evenly spaced (D20).
 2. Grid mode A: highlight the partial last cell, or offer to centre the grid instead? **Decide in M3** after trying both.
-3. Does WebKit honour `createImageBitmap` resize options, and what is the real canvas limit on the device? **Check in M2.**
+3. ~~`createImageBitmap` resize options~~: resolved in M2, iOS 18.7 honours them (D23). The real canvas limit is still unmeasured; it matters only for export, so **measure it in M4**.
 
 Resolved in v0.5: default output greys are evenly spaced; both modes stay selectable (D20).
 

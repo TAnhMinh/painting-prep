@@ -115,3 +115,22 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 - **Alternatives:** wasm-pack (still maintained, now in the wasm-bindgen org), which wraps the same CLI but produces an npm package (`package.json`, README copy) that a no-bundler static site doesn't need. trunk, which is built for Rust-frontend apps and wants to own `index.html`.
 - **Why:** `--target web` gives plain ES modules that `app.js` imports directly, matching spec §4 (no bundler) and §5. One less tool to install, and the version pin is explicit and checked.
 - **Wasm API:** a stateful `Processor` owns the pipeline buffers and reuses them between photos. JS reads the output in place through `output_ptr()`/`output_len()` on the module's `memory` (spec §7). Inner methods return `prep_core::Result` and are tested natively; the `#[wasm_bindgen]` wrappers only convert errors to `JsError` (which panics off wasm).
+
+## D23 — M2 on-device results: decode path and preview timings (2026-10-04)
+- **Device:** iPhone, iOS 18.7, Safari 18.7.2, devicePixelRatio 2, viewport 414 × 714, over plain HTTP on the LAN.
+- **Decode path (open question 3):** `createImageBitmap(file, { resizeWidth, resizeQuality: "high", imageOrientation: "from-image" })` is honoured. A 4032 × 3024 photo decoded straight to 2048 × 1536 with the right aspect ratio, so the `drawImage` fallback didn't run. Desktop Playwright WebKit 1.63 behaves the same.
+- **Timings (ms), 12 MP photo → 2048 × 1536 preview:**
+
+  | decode | draw (resize) | getImageData | load (composite, L\*, histogram) | render (posterize) | putImageData |
+  |---|---|---|---|---|---|
+  | 143 | 102 | 165 | 62 | 17–41 | 3–5 |
+
+  Loading a photo takes about 0.6 s in total. A slider change costs one render plus putImageData, about 20–45 ms, so the live preview is fast enough on the main thread (D13 holds).
+- **Memory:** wasm memory is 37.3 MB after a 2048 × 1536 preview.
+- **Observations:**
+  - `getImageData` is the slowest step, not wasm. This matches spec §7: buffer transfer, not computation, is the bottleneck.
+  - Export at 12 MP will be roughly 4× these numbers, which justifies the busy indicator (F4).
+- **Still open:**
+  - The real canvas size limit (measure in M4, with export).
+  - A 48 MP photo (none tested yet).
+  - The native CLI side of the §7 benchmark.
