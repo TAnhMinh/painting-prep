@@ -1,6 +1,7 @@
 //! `prep`: desktop harness for prep-core. Decodes with `image`, then runs
 //! the same core pipeline as the web app.
 
+mod grid;
 mod image_io;
 mod values;
 
@@ -9,7 +10,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use prep_core::{MAX_BUCKETS, MIN_BUCKETS, OutputGreys, composite_over_white};
+use prep_core::{
+    Axis, GridMode, GridSpec, MAX_BUCKETS, MIN_BUCKETS, OutputGreys, composite_over_white,
+};
 
 #[derive(Parser)]
 #[command(
@@ -27,6 +30,9 @@ enum Command {
     /// Reduce a photo to n shades of grey (a value study), with equal
     /// intervals over the full L* scale, and print its legend.
     Values(ValuesArgs),
+    /// Draw a grid overlay onto a photo: square cells (an axis and a count)
+    /// or rows × columns, with optional diagonals.
+    Grid(GridArgs),
 }
 
 #[derive(Args)]
@@ -59,9 +65,76 @@ enum Greys {
     Both,
 }
 
+#[derive(Args)]
+struct GridArgs {
+    /// Grid mode: square cells (an axis and a count) or rows × columns.
+    #[arg(long, value_enum, default_value_t = Mode::Square)]
+    mode: Mode,
+
+    /// Reference axis whose length sets the square cell size (mode square).
+    #[arg(long, value_enum, default_value_t = AxisArg::Width)]
+    axis: AxisArg,
+
+    /// Cells along the reference axis (mode square).
+    #[arg(
+        short = 'k',
+        long = "cells",
+        default_value_t = 6,
+        value_parser = clap::value_parser!(u32).range(2..=16),
+    )]
+    k: u32,
+
+    /// Rows (mode rowscols).
+    #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=12))]
+    rows: u32,
+
+    /// Columns (mode rowscols).
+    #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=12))]
+    cols: u32,
+
+    /// Draw both diagonals of every whole cell.
+    #[arg(long)]
+    diagonals: bool,
+
+    /// Line colour. The app also offers a two-tone style; the CLI draws one
+    /// colour.
+    #[arg(long, value_enum, default_value_t = Colour::Black)]
+    colour: Colour,
+
+    /// Line thickness in px; 0 picks about 0.15% of the short side (min 1).
+    #[arg(long = "line-px", default_value_t = 0)]
+    line_px: u32,
+
+    /// Input image (JPEG or PNG).
+    input: PathBuf,
+
+    /// Output image; the format follows the extension (PNG recommended).
+    output: PathBuf,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Mode {
+    Square,
+    Rowscols,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum AxisArg {
+    Width,
+    Height,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Colour {
+    Black,
+    White,
+    Grey,
+}
+
 fn main() -> ExitCode {
     let result = match Cli::parse().command {
         Command::Values(args) => run_values(&args),
+        Command::Grid(args) => run_grid(&args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -101,6 +174,52 @@ fn run_values(args: &ValuesArgs) -> Result<(), Box<dyn Error>> {
     for s in &studies {
         print!("\n{}", values::legend(s));
     }
+    Ok(())
+}
+
+fn run_grid(args: &GridArgs) -> Result<(), Box<dyn Error>> {
+    let (mut rgba, width, height) = image_io::load(&args.input)
+        .map_err(|e| format!("can't read {}: {e}", args.input.display()))?;
+    // Flatten any transparency to opaque so the saved PNG has a clean background
+    // under the grid (D19), the same first step as `values`.
+    composite_over_white(&mut rgba, width, height)?;
+
+    let mode = match args.mode {
+        Mode::Square => GridMode::Square {
+            axis: match args.axis {
+                AxisArg::Width => Axis::Width,
+                AxisArg::Height => Axis::Height,
+            },
+            k: args.k,
+        },
+        Mode::Rowscols => GridMode::RowsCols {
+            rows: args.rows,
+            cols: args.cols,
+        },
+    };
+    let spec = GridSpec {
+        mode,
+        diagonals: args.diagonals,
+    };
+
+    let thickness = if args.line_px == 0 {
+        // Match the web default: ~0.15% of the short side, at least 1 px (F3).
+        (0.0015 * width.min(height) as f32).round().max(1.0) as u32
+    } else {
+        args.line_px
+    };
+    let colour = match args.colour {
+        Colour::Black => [0, 0, 0],
+        Colour::White => [255, 255, 255],
+        Colour::Grey => [128, 128, 128],
+    };
+
+    let lines = grid::draw(&mut rgba, width, height, &spec, colour, thickness)?;
+    image_io::save(&args.output, &rgba, width, height)
+        .map_err(|e| format!("can't write {}: {e}", args.output.display()))?;
+
+    println!("{}: {width} × {height}", args.input.display());
+    println!("{}", grid::summary(width, height, &spec, thickness, lines));
     Ok(())
 }
 
