@@ -8,8 +8,9 @@
 //! and before the next call that may allocate.
 
 use prep_core::{
-    Algorithm, BINS, BYTES_PER_PIXEL, OutputGreys, bucket_counts, bucket_greys,
-    composite_over_white, histogram, lightness_map, posterize, thresholds,
+    Algorithm, Axis, BINS, BYTES_PER_PIXEL, GridMode, GridSpec, OutputGreys, bucket_counts,
+    bucket_greys, composite_over_white, grid_lines, histogram, lightness_map, posterize,
+    thresholds,
 };
 use wasm_bindgen::prelude::*;
 
@@ -132,6 +133,47 @@ impl Processor {
     }
 }
 
+/// Grid line geometry for a `width × height` image, flattened to
+/// `[x1, y1, x2, y2, …]` in image-relative pixels (spec F3, D9).
+///
+/// Pure geometry — it needs no loaded photo, so it's a free function rather than
+/// a [`Processor`] method. `mode` is `"square"` or `"rowscols"`; `axis` is
+/// `"width"` or `"height"` (square mode only). JS unpacks the floats in fours
+/// and draws the lines with Canvas 2D, scaled to whatever it's drawing at.
+#[wasm_bindgen(js_name = gridLines)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "flat scalar args keep the wasm boundary simple; grouping them would export an extra struct for no gain"
+)]
+pub fn grid_lines_js(
+    width: u32,
+    height: u32,
+    mode: &str,
+    axis: &str,
+    k: u32,
+    rows: u32,
+    cols: u32,
+    diagonals: bool,
+) -> Result<Vec<f32>, JsError> {
+    let mode = match mode {
+        "square" => {
+            let axis = match axis {
+                "width" => Axis::Width,
+                "height" => Axis::Height,
+                other => return Err(JsError::new(&format!("unknown axis {other:?}"))),
+            };
+            GridMode::Square { axis, k }
+        }
+        "rowscols" => GridMode::RowsCols { rows, cols },
+        other => return Err(JsError::new(&format!("unknown grid mode {other:?}"))),
+    };
+    let lines = grid_lines(width, height, &GridSpec { mode, diagonals })?;
+    Ok(lines
+        .into_iter()
+        .flat_map(|l| [l.x1, l.y1, l.x2, l.y2])
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,6 +240,17 @@ mod tests {
         assert_eq!((p.width(), p.height(), p.output_len()), (0, 0, 0));
         assert!(p.render(2, false).is_err());
     }
+
+    #[test]
+    fn grid_lines_js_flattens_to_quads() {
+        // 2 × 2 rows × cols on 100 × 100 → 6 lines → 24 floats.
+        let n = grid_lines_js(100, 100, "rowscols", "width", 0, 2, 2, false);
+        assert_eq!(n.map(|v| v.len()).unwrap_or(0), 24);
+    }
+
+    // The error paths (unknown mode/axis, zero size/count) build a JsError,
+    // which panics on non-wasm targets (D22), so they aren't tested here; the
+    // geometry errors are covered in prep-core.
 
     #[test]
     fn buffers_are_reused_across_photos() {
