@@ -6,7 +6,7 @@ Read `docs/spec.md` before planning any change. Log significant decisions in `do
 Start Claude Code in this folder (`painting-prep/`), not its parent `PaintingPrepApp/`. The parent isn't a git repo, so `/diff` and git commands there see nothing.
 
 ## Status
-Update this at the end of each session.
+Update this at the end of each session. A readable end-of-session handoff is in `docs/handoff.md`.
 - Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI). M2 — complete (2026-11-08): UI, `prep-wasm` `Processor`, WebKit smoke test, CI `webkit` job, large-photo fix (D23); confirmed on the iPhone. **M3 — complete** (2026-11-09, `f1b2e03`..`8666ef9`, not yet pushed): grid overlay across all three crates. M3.1 `prep-core` `grid_lines` geometry (`grid.rs`); M3.2 `prep grid` CLI (rasterizes to a PNG); M3.3 wasm `gridLines` binding; M3.4 web overlay (Canvas 2D, both modes, diagonals, 4 line styles, over study/original, partial-cell flag). Open question 2 resolved (D24). Full check green; WebKit smoke test now 4 tests; verified in WebKit at phone size. Plan saved in `docs/m3-plan.md`.
 - Open at the start of the 2026-11-09 session, in this order:
   1. **Push M3** (`f1b2e03`..`8666ef9`, plus the docs commit). Ask the user first.
