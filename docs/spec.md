@@ -156,7 +156,7 @@ pub fn thresholds(hist: &[u32; BINS], n: u8, algo: Algorithm) -> Result<Threshol
 pub fn bucket_greys(hist: &[u32; BINS], t: &Thresholds, mode: OutputGreys) -> Vec<u8>; // n sRGB greys, dark to light
 pub fn bucket_counts(hist: &[u32; BINS], t: &Thresholds) -> Vec<u64>;     // pixels per bucket, for the legend
 pub fn posterize(l: &[f32], t: &Thresholds, greys: &[u8], out_rgba: &mut [u8], w: u32, h: u32) -> Result<()>;
-pub fn grid_lines(w: u32, h: u32, spec: &GridSpec) -> Vec<Line>;        // geometry only
+pub fn grid_lines(w: u32, h: u32, spec: &GridSpec) -> Result<Vec<Line>>; // geometry only; Result validates size and count (D24)
 ```
 
 ## 6. Algorithms and domain rules
@@ -221,7 +221,7 @@ Each milestone is one or a few Claude Code sessions, committed when green.
 ## 10. Open questions
 
 1. ~~Default output greys~~: resolved in v0.5, evenly spaced (D20).
-2. Grid mode A: highlight the partial last cell, or offer to centre the grid instead? **Decide in M3** after trying both.
+2. ~~Grid mode A: highlight the partial last cell, or offer to centre the grid instead?~~ resolved in M3: draw the partial last cell at the far edge and flag it in the UI; centring is not offered (D24).
 3. ~~`createImageBitmap` resize options~~: resolved in M2, iOS 18.7 honours them (D23). The real canvas limit is still unmeasured; it matters only for export, so **measure it in M4**.
 
 Resolved in v0.5: default output greys are evenly spaced; both modes stay selectable (D20).

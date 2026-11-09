@@ -7,14 +7,14 @@ Start Claude Code in this folder (`painting-prep/`), not its parent `PaintingPre
 
 ## Status
 Update this at the end of each session.
-- Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI). M2.1–M2.8: UI sketch (`docs/ui.md`), `prep-wasm` `Processor`, minimal page (photo, n slider with ticks, Even/Mean greys), debug panel, Playwright WebKit smoke test (3 tests), CI `webkit` job, large-photo fix. On the iPhone (iOS 18.7, 12 MP camera), a 12 MP photo loads in about 0.6 s, values and orientation look right, and `createImageBitmap` resize works (D23, open question 3 resolved).
-- Open at the end of the 2026-10-04 session, in this order:
-  1. **Push M2.8** (`108a8c5`). Pushed up to `c27334a`; ask the user first.
-  2. **Check CI on GitHub.** The `webkit` job has never been confirmed green. `gh` isn't installed and the API returns 404 without a login (the repo looks private), so ask the user to check the Actions tab.
-  3. **Retest large photos on the iPhone with M2.8.** Before the fix, a 64 MP photo (8793 × 7331) gave a solid white study, and a 102 MP photo (11375 × 8992) crashed the page (D23). If the 102 MP photo still crashes, refuse sources above a measured pixel limit before decoding: the size is known from the `load` event. Then record the results in D23.
-  4. **Close M2:** mark it done here and in D23. Spec §9 asks for 48 MP or the largest available; the user's photos came from the internet, since their camera is 12 MP.
-- Next, M3: grid overlay (modes A and B, Canvas 2D). Decide open question 2 there. Plan it first: it spans `prep-core` (geometry), `prep-cli` (`prep grid`) and `web/`.
-- To test on the phone: run `scripts/build-web.sh`, then the dev server below, and open `http://<laptop LAN IP>:8000` on the iPhone. Safari caches `app.js`, so close and reopen the tab after changes. The user sends debug-panel screenshots into the parent folder `../`.
+- Done: M0; M1 (core L\*, histogram, equal-interval thresholds, greys, posterize, legend counts; `prep values` CLI). M2 — complete (2026-11-08): UI, `prep-wasm` `Processor`, WebKit smoke test, CI `webkit` job, large-photo fix (D23); confirmed on the iPhone. **M3 — complete** (2026-11-09, `f1b2e03`..`8666ef9`, not yet pushed): grid overlay across all three crates. M3.1 `prep-core` `grid_lines` geometry (`grid.rs`); M3.2 `prep grid` CLI (rasterizes to a PNG); M3.3 wasm `gridLines` binding; M3.4 web overlay (Canvas 2D, both modes, diagonals, 4 line styles, over study/original, partial-cell flag). Open question 2 resolved (D24). Full check green; WebKit smoke test now 4 tests; verified in WebKit at phone size. Plan saved in `docs/m3-plan.md`.
+- Open at the start of the 2026-11-09 session, in this order:
+  1. **Push M3** (`f1b2e03`..`8666ef9`, plus the docs commit). Ask the user first.
+  2. **Check CI on GitHub** stays green after the push (user checks the Actions tab; `gh` isn't installed).
+  3. **M3 on the iPhone:** build + serve (`docs/running.md`), try both grid modes over study and original, diagonals, the four line styles (two-tone legible on light *and* dark), and the partial-cell flag in Square mode. Then **do the deferred large-photo retest** (below) in the same session.
+  4. **Large-photo retest on the iPhone (deferred from M2, do before M4 export).** With the M2.8 fix, confirm a 64 MP photo (8793 × 7331) and a 102 MP photo (11375 × 8992) no longer give a white study / crash the page. If the larger one still crashes, refuse sources above a measured pixel limit before decoding (size is known from the `load` event). Record results in D23.
+- Next, **M4: export** (two-step share sheet, PWA manifest + service worker, Actions deploy to Pages). Measure the real canvas size limit here (open question 3 remnant). Plan it first.
+- To run/test on the phone: see `docs/running.md` (build, serve, find the DHCP LAN IP). Safari caches `app.js`, so close and reopen the tab after changes. The user sends debug-panel screenshots into the parent folder `../`.
 
 ## Layout
 - `crates/core` (package `prep-core`) — all image logic. Pure Rust, no wasm/web/decoding deps. RGBA8 in, RGBA8 out.
@@ -28,6 +28,7 @@ Update this at the end of each session.
 Keep these commands up to date as tooling is set up.
 - Full check (same as CI, `.github/workflows/ci.yml`): `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo check -p prep-wasm --target wasm32-unknown-unknown`
 - CLI (binary `prep`): `cargo run --release -p prep-cli -- values -n 5 --greys both in.jpg out.png`. `--greys even|mean|both`; `both` writes original | evenly spaced | bucket mean side by side. Prints the legend. `--help` lists all flags.
+- CLI grid (M3): `cargo run --release -p prep-cli -- grid --axis width -k 6 --diagonals in.jpg out.png`. `--mode square|rowscols`, `--axis width|height`, `-k/--cells 2..=16`, `--rows/--cols 1..=12`, `--colour black|white|grey`, `--line-px 0` (0 = auto). For eyeballing geometry; single colour, no AA (two-tone/AA are Canvas-only). Prints a summary with cell size and any partial-cell note.
 - wasm build: `scripts/build-web.sh` (cargo build for `wasm32-unknown-unknown`, then `wasm-bindgen --target web` into `web/pkg/`; D22). Needs `cargo install wasm-bindgen-cli --version 0.2.129 --locked`; the script fails if the CLI doesn't match `Cargo.lock`. Bump the crate pin and the CLI together.
 - Dev server: `python3 -m http.server 8000 --bind 0.0.0.0 -d web` (after the wasm build). Plain HTTP on the LAN: no service worker or Web Share (spec §7).
 - Browser test (Playwright WebKit, spec §8): once, `python3 -m venv .venv && .venv/bin/pip install -r tests/web/requirements.txt && .venv/bin/playwright install webkit` (Ubuntu 26.04 needs Playwright ≥ 1.61, plus `sudo apt-get install libflite1 libavif16 libmanette-0.2-0`). Then `scripts/build-web.sh && .venv/bin/python tests/web/test_smoke.py`. It compares the page's study with `prep values` on `tests/web/fixture.png` (from `make_fixture.py`), byte for byte.
@@ -58,7 +59,9 @@ Keep these commands up to date as tooling is set up.
 - `histogram::lstar_to_bin` is the only L\* → bin mapping. Posterize and thresholds must use it, never their own rounding (D12).
 - The page exposes hooks the WebKit test relies on: `body[data-wasm=ready]`, `#preview[data-rendered="<n>,<even|mean>"]` after each render, and `window.prepDebug.errorCount`. Keep them when changing the page.
 - Segmented controls are radio inputs hidden behind their labels. In Playwright, click the `label[for=…]`, not the input.
-- Web layout uses named `grid-template-areas`. Elements that are sometimes `hidden` (the error banner) must have a named area, or the rows below them shift.
+- Web layout uses named `grid-template-areas`. Elements that are sometimes `hidden` (the error banner) must have a named area, or the rows below them shift. A `.row` (or any element with a non-`none` `display`) that is sometimes `hidden` needs an explicit `[hidden] { display: none }` rule, since the class's `display` beats the UA `[hidden]` rule.
+- Returning a non-pixel array across the wasm boundary: flatten it to a `Vec<f32>`/`Vec<u8>`/`Vec<f64>` and let wasm-bindgen copy it out, as `counts()`, `greys()` and `gridLines` do. No `Vec<struct>`, no serde. (Pixel buffers still cross via `output_ptr`/`output_len`, zero-copy.)
+- Web render path: `render()` re-posterizes (n/greys/photo changed), `paint()` repaints the base + grid without re-posterizing (grid-only changes, via `queuePaint()`), per the spec §5 caching table. Keep `#preview[data-rendered]` set at the end of a successful `paint()`, and keep the grid off by default so the WebKit byte-exact study test is unaffected.
 - A `pub(crate)` function that only tests use yet gets `#[cfg_attr(not(test), expect(dead_code, reason = "used by ..."))]`. Delete the attribute when the compiler warns that it's no longer needed.
 
 ## Don't

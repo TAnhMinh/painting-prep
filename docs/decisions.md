@@ -137,7 +137,16 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 - **Fix (M2.8):**
   - The size now comes from the `<img>` `load` event, which reads the header without forcing a decode (6 ms for 48 MP on desktop WebKit). The `<img>` is released right after.
   - After drawing, the app checks that every pixel is opaque. The canvas is filled with opaque white first, so any transparent pixel means the canvas failed, and the app shows "not enough memory" instead of a wrong study. The WebKit smoke test simulates this case.
-- **Still open:**
+- **M2 closed (2026-11-08):** M2.8 pushed, CI `webkit` job confirmed green on GitHub. M2 is complete.
+- **Still open (deferred follow-ups, not blocking M3):**
+  - Retest 64 MP and 102 MP photos on the device with the M2.8 build, **before M4 export**. If the larger one still kills the page, refuse sources above a measured pixel limit before decoding (size is known from the `load` event).
   - The real canvas size limit (measure in M4, with export).
-  - Retest 64 MP and 102 MP photos on the device with the M2.8 build. If the larger one still kills the page, refuse sources above a measured pixel limit before decoding.
   - The native CLI side of the §7 benchmark.
+
+## D24 — M3 grid geometry and open question 2 (2026-11-09)
+- **Open question 2 resolved:** in mode A (square cells), the non-reference axis gets as many whole cells as fit, and the leftover is drawn as a smaller **partial last cell at the far edge**, flagged in the UI. Centring the grid (splitting the leftover into two half-cells) is **not** offered. Chosen over centring because it's spec F3's stated default, is simplest to reason about, and keeps one predictable origin corner; centring stays an easy later addition if it proves useful on the device.
+- **`grid_lines` returns `Result<Vec<Line>>`**, refining the spec sketch's bare `Vec<Line>` (`spec.md:159`, "to be refined in plan mode"). It matches every other fallible core function and validates defensively: `Error::ZeroSize` for a zero dimension, and a new `Error::GridCount { count }` for a zero `k`/`rows`/`cols`. The CLI relies on clap ranges and the web on slider `min`s, but core still checks.
+- **Geometry conventions:** `Line` holds `f32` image-relative pixel coordinates (non-integer cell boundaries like `width / k` must land exactly, and Canvas 2D scales them). Outer borders are included. Diagonals, when on, cross every **whole** cell with both diagonals (an X); partial cells get none, which also keeps all endpoints trivially in bounds.
+- **Drawing stays out of core (D9).** `prep-core` returns geometry only. The web draws it with Canvas 2D; the CLI rasterizes it with a small in-crate routine (axis-aligned fills + a thickness-box DDA for diagonals, no new dependency). Two-tone (a dark outline under a light core) and anti-aliasing are Canvas features and aren't reproduced in the CLI, which draws one `--colour`.
+- **wasm boundary:** `gridLines` is a free `#[wasm_bindgen]` function (geometry needs no loaded photo), returning the lines flattened to a `Vec<f32>` `[x1,y1,x2,y2,…]` — the same copy-out idiom as `counts()`/`greys()`, no `Vec<struct>` or serde. Mode/axis cross as strings. Its error paths build a `JsError`, which panics off wasm (D22), so they're unit-tested in `prep-core`, not the wasm crate.
+- **UI:** grid controls stack as rows under the Values controls; the tab bar sketched in `ui.md` is **deferred** (not needed yet). The render path splits into `render()` (re-posterize) and `paint()` (repaint base + grid), so grid-only changes skip posterizing (spec §5 caching). The study-only path stays byte-identical, so the WebKit byte-exact test is unaffected (grid defaults off).

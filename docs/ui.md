@@ -99,4 +99,8 @@ Only these parts, in the portrait layout. Landscape just has to stay usable (the
 - a "Choose photo" button (the Photo panel without its info rows)
 - the error banner and the debug panel
 
-There are no tabs yet. M2 shows the photo button and the Values panel stacked under the preview. Tabs arrive once a third section exists (Grid in M3).
+There are no tabs yet. M2 shows the photo button and the Values panel stacked under the preview.
+
+## M3 update (2026-11-09)
+
+M3 added the Grid panel but **kept everything stacked** under the preview — the Values rows, then the Grid rows (grid mode, axis + k or rows + cols, diagonals + over, line style, and a partial-cell note). The tab bar sketched above is **deferred**: with two short panels the single scroll is fine on the phone, and tabs are extra UI and test surface for no clear gain yet. Revisit tabs when Export (M4) and the snapshot strip (M6) make the control area too tall. The grid controls follow the same patterns as M2 (segmented radios, `.ruler` sliders with ticks for k).
