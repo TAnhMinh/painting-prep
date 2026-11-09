@@ -111,6 +111,17 @@ class WebKitSmokeTest(unittest.TestCase):
             f"document.getElementById('preview').dataset.rendered === '{n},{greys}'"
         )
 
+    def preview_signature(self):
+        """A weighted sum over every preview byte: changes if any pixel does."""
+        return self.page.evaluate("""() => {
+          const p = document.getElementById('preview');
+          const d = p.getContext('2d', { colorSpace: 'srgb' })
+            .getImageData(0, 0, p.width, p.height, { colorSpace: 'srgb' }).data;
+          let s = 0;
+          for (let i = 0; i < d.length; i++) s = (s + d[i] * ((i % 251) + 1)) % 2147483647;
+          return s;
+        }""")
+
     def test_study_matches_cli(self):
         self.load_fixture()
         for n, greys in CASES:
@@ -118,6 +129,27 @@ class WebKitSmokeTest(unittest.TestCase):
                 self.set_study(n, greys)
                 b64 = base64.b64encode(self.expected[(n, greys)]).decode()
                 self.assertEqual(self.page.evaluate(COMPARE_JS, b64), 0)
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_grid_overlay_draws_and_clears(self):
+        self.load_fixture()
+        self.set_study(5, "even")
+        base = self.preview_signature()
+
+        # Enabling a square grid must change the preview.
+        self.page.click("label[for=grid-square]")
+        self.assertNotEqual(self.preview_signature(), base)
+
+        # Exercise diagonals, a plain line style, over-original, and rows × cols;
+        # none of these should raise.
+        for label in ("diag-on", "line-black", "over-orig", "grid-rc"):
+            self.page.click(f"label[for={label}]")
+
+        # Turning the grid off returns the preview to the plain study.
+        self.page.click("label[for=grid-off]")
+        self.assertEqual(self.preview_signature(), base)
+
         self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
         self.assertEqual(self.page_errors, [])
 

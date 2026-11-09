@@ -47,6 +47,72 @@
         <label for="greys-mean">Mean</label>
       </div>
     </div>
+    <div class="row" role="radiogroup" aria-label="Grid">
+      <span class="name">grid</span>
+      <div class="segmented">
+        <input id="grid-off" type="radio" name="grid-mode" value="off" checked>
+        <label for="grid-off">Off</label>
+        <input id="grid-square" type="radio" name="grid-mode" value="square">
+        <label for="grid-square">Square</label>
+        <input id="grid-rc" type="radio" name="grid-mode" value="rowscols">
+        <label for="grid-rc">R×C</label>
+      </div>
+    </div>
+    <div id="grid-square-row" class="row" role="radiogroup" aria-label="Square cells" hidden>
+      <span class="name">axis</span>
+      <div class="segmented">
+        <input id="axis-width" type="radio" name="grid-axis" value="width" checked>
+        <label for="axis-width">Width</label>
+        <input id="axis-height" type="radio" name="grid-axis" value="height">
+        <label for="axis-height">Height</label>
+      </div>
+      <div class="ruler">
+        <div id="k-ticks" class="ticks" aria-hidden="true"></div>
+        <input id="grid-k" type="range" min="2" max="16" step="1" value="6">
+      </div>
+      <output id="k-value" for="grid-k">6</output>
+    </div>
+    <div id="grid-rc-row" class="row" hidden>
+      <label for="grid-rows" class="name">rows</label>
+      <div class="ruler"><input id="grid-rows" type="range" min="1" max="12" step="1" value="3"></div>
+      <output id="rows-value" for="grid-rows">3</output>
+      <label for="grid-cols" class="name">cols</label>
+      <div class="ruler"><input id="grid-cols" type="range" min="1" max="12" step="1" value="3"></div>
+      <output id="cols-value" for="grid-cols">3</output>
+    </div>
+    <div id="grid-opts-row" class="row" hidden>
+      <span class="name">diag</span>
+      <div class="segmented" role="radiogroup" aria-label="Diagonals">
+        <input id="diag-off" type="radio" name="grid-diag" value="off" checked>
+        <label for="diag-off">Off</label>
+        <input id="diag-on" type="radio" name="grid-diag" value="on">
+        <label for="diag-on">On</label>
+      </div>
+      <span class="name">over</span>
+      <div class="segmented" role="radiogroup" aria-label="Draw over">
+        <input id="over-study" type="radio" name="grid-over" value="study" checked>
+        <label for="over-study">Study</label>
+        <input id="over-orig" type="radio" name="grid-over" value="original">
+        <label for="over-orig">Orig</label>
+      </div>
+    </div>
+    <div id="grid-line-row" class="row" role="radiogroup" aria-label="Line style" hidden>
+      <span class="name">line</span>
+      <div class="segmented">
+        <input id="line-black" type="radio" name="grid-line" value="black">
+        <label for="line-black">Black</label>
+        <input id="line-white" type="radio" name="grid-line" value="white">
+        <label for="line-white">White</label>
+        <input id="line-grey" type="radio" name="grid-line" value="grey">
+        <label for="line-grey">Grey</label>
+        <input id="line-two" type="radio" name="grid-line" value="two" checked>
+        <label for="line-two">Two</label>
+      </div>
+    </div>
+    <div id="grid-note-row" class="row" hidden>
+      <span class="name">cell</span>
+      <span id="grid-note" class="status">partial last cell drawn at the far edge</span>
+    </div>
   </section>
 </body>
 </html>

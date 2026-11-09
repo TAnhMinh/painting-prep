@@ -3,7 +3,7 @@
 
 // debug.js first: it captures console output from the modules after it.
 import { bindLongPress, setInfoProvider } from "./debug.js";
-import init, { Processor } from "./pkg/prep_wasm.js";
+import init, { Processor, gridLines } from "./pkg/prep_wasm.js";
 
 /** Preview working size: long side in px (spec §7). */
 const PREVIEW_LONG_SIDE = 2048;
@@ -21,6 +21,19 @@ const els = {
   errorText: $("error-text"),
   errorClose: $("error-close"),
   title: $("title"),
+  // Grid controls (M3).
+  k: $("grid-k"),
+  kValue: $("k-value"),
+  kTicks: $("k-ticks"),
+  rows: $("grid-rows"),
+  rowsValue: $("rows-value"),
+  cols: $("grid-cols"),
+  colsValue: $("cols-value"),
+  gridSquareRow: $("grid-square-row"),
+  gridRcRow: $("grid-rc-row"),
+  gridOptsRow: $("grid-opts-row"),
+  gridLineRow: $("grid-line-row"),
+  gridNoteRow: $("grid-note-row"),
 };
 
 const state = {
@@ -30,6 +43,20 @@ const state = {
   n: Number(els.n.value),
   bucketMean: $("greys-mean").checked,
   renderQueued: false,
+  paintQueued: false,
+  // The composited-over-white preview pixels, kept so the grid can be drawn
+  // over the original photo (not just the study). Replaced on each load.
+  originalImageData: null,
+  grid: {
+    mode: "off", // off | square | rowscols
+    axis: "width", // width | height (square mode)
+    k: Number($("grid-k").value),
+    rows: Number($("grid-rows").value),
+    cols: Number($("grid-cols").value),
+    diagonals: false,
+    over: "study", // study | original
+    line: "two", // black | white | grey | two
+  },
 };
 
 /** Facts about the current photo and the last run, for the debug panel. */
@@ -195,6 +222,8 @@ async function loadPhoto(file) {
     Object.assign(stats, { source, working: target, decodePath });
     els.preview.width = target.width;
     els.preview.height = target.height;
+    // Keep the original pixels for "grid over original" (already over white).
+    state.originalImageData = imageData;
     state.loaded = true;
     render();
     els.preview.hidden = false;
@@ -218,24 +247,105 @@ async function loadPhoto(file) {
   }
 }
 
-/** Renders the study for the current settings into the preview canvas. */
+/** Re-posterizes the study for the current n/greys, then repaints. */
 function render() {
   if (!state.loaded) return;
   try {
-    const p = state.processor;
-    timedSync("render", () => p.render(state.n, state.bucketMean));
-    timedSync("putImageData", () => {
-      // A view on wasm memory, made after render's allocations (spec §7).
-      const view = new Uint8ClampedArray(state.wasm.memory.buffer, p.output_ptr(), p.output_len());
-      const ctx = els.preview.getContext("2d", { colorSpace: "srgb" });
-      ctx.putImageData(new ImageData(view, p.width(), p.height()), 0, 0);
-    });
-    // Signals the finished render to the WebKit smoke test.
-    els.preview.dataset.rendered = `${state.n},${state.bucketMean ? "mean" : "even"}`;
+    timedSync("render", () => state.processor.render(state.n, state.bucketMean));
   } catch (e) {
     console.error(e);
     showError(`Couldn't render the study: ${e.message ?? e}`);
+    return;
   }
+  paint();
+}
+
+/**
+ * Repaints the preview: the base image (study, or the original photo when the
+ * grid is drawn over it), then the grid on top. Doesn't re-posterize, so it's
+ * the cheap path for grid-only changes (spec §5 caching table).
+ */
+function paint() {
+  if (!state.loaded) return;
+  try {
+    const p = state.processor;
+    const ctx = els.preview.getContext("2d", { colorSpace: "srgb" });
+    timedSync("putImageData", () => {
+      const overOriginal =
+        state.grid.mode !== "off" && state.grid.over === "original" && state.originalImageData;
+      if (overOriginal) {
+        ctx.putImageData(state.originalImageData, 0, 0);
+      } else {
+        // A view on wasm memory, made after render's allocations (spec §7).
+        const view = new Uint8ClampedArray(state.wasm.memory.buffer, p.output_ptr(), p.output_len());
+        ctx.putImageData(new ImageData(view, p.width(), p.height()), 0, 0);
+      }
+    });
+    timedSync("grid", () => drawGrid(ctx));
+    // Signals the finished paint to the WebKit smoke test.
+    els.preview.dataset.rendered = `${state.n},${state.bucketMean ? "mean" : "even"}`;
+  } catch (e) {
+    console.error(e);
+    showError(`Couldn't draw the preview: ${e.message ?? e}`);
+  }
+}
+
+/** Draws the grid overlay for the current settings (no-op when grid is off). */
+function drawGrid(ctx) {
+  const g = state.grid;
+  if (g.mode === "off") return;
+  const w = state.processor.width();
+  const h = state.processor.height();
+  const coords = gridLines(w, h, g.mode, g.axis, g.k, g.rows, g.cols, g.diagonals);
+  const path = new Path2D();
+  for (let i = 0; i + 3 < coords.length; i += 4) {
+    path.moveTo(coords[i], coords[i + 1]);
+    path.lineTo(coords[i + 2], coords[i + 3]);
+  }
+  // Line width ≈ 0.15% of the short side, at least 1 px (spec F3).
+  strokeGrid(ctx, path, Math.max(1, 0.0015 * Math.min(w, h)), g.line);
+  // Flag a partial last cell in Square mode (open question 2 → D24).
+  els.gridNoteRow.hidden = partialRemainder(w, h, g) <= 0;
+}
+
+/** Strokes `path`, with two-tone = a dark outline under a light core so the
+ *  grid stays visible on any background (spec F3). */
+function strokeGrid(ctx, path, lineWidth, style) {
+  if (style === "two") {
+    ctx.lineWidth = lineWidth + 2;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.stroke(path);
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.stroke(path);
+    return;
+  }
+  const colours = { black: "#000000", white: "#ffffff", grey: "#808080" };
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = colours[style] ?? "#000000";
+  ctx.stroke(path);
+}
+
+/** Leftover pixels on the non-reference axis in Square mode (0 if it divides
+ *  evenly or the mode isn't Square). Mirrors prep-core's geometry. */
+function partialRemainder(w, h, g) {
+  if (g.mode !== "square") return 0;
+  const refLen = g.axis === "width" ? w : h;
+  const otherLen = g.axis === "width" ? h : w;
+  const cell = refLen / g.k;
+  const full = Math.floor(otherLen / cell + 1e-4);
+  const rem = otherLen - cell * full;
+  return rem > 0.5 ? rem : 0;
+}
+
+/** Shows only the grid sub-rows that apply to the current mode. */
+function updateGridVisibility() {
+  const on = state.grid.mode !== "off";
+  els.gridSquareRow.hidden = state.grid.mode !== "square";
+  els.gridRcRow.hidden = state.grid.mode !== "rowscols";
+  els.gridOptsRow.hidden = !on;
+  els.gridLineRow.hidden = !on;
+  if (!on) els.gridNoteRow.hidden = true;
 }
 
 function timedSync(label, fn) {
@@ -257,6 +367,17 @@ function queueRender() {
   });
 }
 
+/** Coalesces grid-slider events into at most one repaint per frame (a repaint
+ *  skips re-posterizing, spec §5). */
+function queuePaint() {
+  if (state.paintQueued) return;
+  state.paintQueued = true;
+  requestAnimationFrame(() => {
+    state.paintQueued = false;
+    paint();
+  });
+}
+
 function bindEvents() {
   els.file.addEventListener("change", () => {
     const file = els.file.files?.[0];
@@ -273,7 +394,62 @@ function bindEvents() {
       render();
     });
   }
+
+  // Grid controls (M3). All are grid-only changes, so they repaint without
+  // re-posterizing — except nothing here touches n/greys.
+  for (const radio of document.querySelectorAll('input[name="grid-mode"]')) {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      state.grid.mode = radio.value;
+      updateGridVisibility();
+      paint();
+    });
+  }
+  bindRadio("grid-axis", (value) => {
+    state.grid.axis = value;
+  });
+  bindRadio("grid-diag", (value) => {
+    state.grid.diagonals = value === "on";
+  });
+  bindRadio("grid-over", (value) => {
+    state.grid.over = value;
+  });
+  bindRadio("grid-line", (value) => {
+    state.grid.line = value;
+  });
+  bindGridSlider(els.k, els.kValue, (v) => {
+    state.grid.k = v;
+  });
+  bindGridSlider(els.rows, els.rowsValue, (v) => {
+    state.grid.rows = v;
+  });
+  bindGridSlider(els.cols, els.colsValue, (v) => {
+    state.grid.cols = v;
+  });
+
   els.errorClose.addEventListener("click", clearError);
+}
+
+/** Wires a radio group: `apply` stores the picked value, then repaint. */
+function bindRadio(name, apply) {
+  for (const radio of document.querySelectorAll(`input[name="${name}"]`)) {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      apply(radio.value);
+      paint();
+    });
+  }
+}
+
+/** Wires a grid range slider: `apply` stores the value, update the output,
+ *  repaint (coalesced). */
+function bindGridSlider(slider, output, apply) {
+  slider.addEventListener("input", () => {
+    const v = Number(slider.value);
+    apply(v);
+    output.textContent = v;
+    queuePaint();
+  });
 }
 
 /** Rows for the debug panel (spec §7). */
@@ -283,7 +459,7 @@ function debugInfo() {
     source: size(stats.source),
     working: size(stats.working),
     decodePath: stats.decodePath ?? "–",
-    settings: `n = ${state.n}, greys = ${state.bucketMean ? "mean" : "even"}`,
+    settings: `n = ${state.n}, greys = ${state.bucketMean ? "mean" : "even"}, grid = ${state.grid.mode}`,
     // Wasm memory only grows (spec §7), so this is the session's peak.
     wasmMemory: state.wasm ? `${(state.wasm.memory.buffer.byteLength / 2 ** 20).toFixed(1)} MB` : "–",
   };
@@ -301,7 +477,12 @@ function drawTicks(slider, container) {
 
 async function main() {
   els.nValue.textContent = state.n; // the browser may restore form values
+  els.kValue.textContent = state.grid.k;
+  els.rowsValue.textContent = state.grid.rows;
+  els.colsValue.textContent = state.grid.cols;
   drawTicks(els.n, els.nTicks);
+  drawTicks(els.k, els.kTicks);
+  updateGridVisibility();
   setInfoProvider(debugInfo);
   bindLongPress(els.title);
   bindEvents();

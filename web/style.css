@@ -118,6 +118,9 @@ body {
   gap: var(--gap);
   min-height: 2.75rem; /* touch target */
 }
+/* `.row { display: flex }` beats the UA `[hidden]` rule, so say it explicitly
+   (the same gotcha the named grid areas avoid for the banner). */
+.row[hidden] { display: none; }
 
 .name { width: 3.5rem; color: var(--muted); }
 
