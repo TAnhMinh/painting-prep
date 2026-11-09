@@ -13,6 +13,8 @@ pub enum Error {
     TooLarge { width: u32, height: u32 },
     /// A value study's bucket count is outside 2..=10.
     BucketCount { n: u8 },
+    /// A grid count (k, rows, or cols) is zero.
+    GridCount { count: u32 },
 }
 
 /// Result type used throughout prep-core.
@@ -32,6 +34,9 @@ impl fmt::Display for Error {
             }
             Error::BucketCount { n } => {
                 write!(f, "{n} buckets requested, expected 2 to 10")
+            }
+            Error::GridCount { count } => {
+                write!(f, "grid count is {count}, expected at least 1")
             }
         }
     }
