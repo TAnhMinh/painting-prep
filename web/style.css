@@ -33,10 +33,11 @@ html, body { margin: 0; height: 100%; }
 
 body {
   display: grid;
-  /* Named areas: the hidden error banner takes no row, so implicit placement
-     would shift the preview into an auto-sized row. */
-  grid-template-areas: "top" "banner" "preview" "controls";
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  /* The photo is full-screen (D25); controls live in the Settings overlay, which
+     is fixed-position and outside this grid. Named areas: the hidden error banner
+     takes no row, so implicit placement would shift the preview up a row. */
+  grid-template-areas: "top" "banner" "preview";
+  grid-template-rows: auto auto minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   padding:
@@ -56,7 +57,7 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.top-bar h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+.top-bar h1 { margin: 0; font-size: 1.1rem; font-weight: 600; flex: 1; }
 
 /* Long-press targets (spec UI): no iOS callout or text selection. */
 .no-callout {
@@ -103,17 +104,16 @@ body {
 }
 .preview canvas[hidden], .preview .button[hidden] { display: none; }
 
+/* The control rows, now inside the Settings overlay. */
 .controls {
-  grid-area: controls;
   display: grid;
   gap: var(--gap);
-  padding: var(--gap) 1rem;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
+  padding: var(--gap) 0;
 }
 
 .row {
   display: flex;
+  flex-wrap: wrap; /* rows with two controls (axis+k, diag+over) wrap on a phone */
   align-items: center;
   gap: var(--gap);
   min-height: 2.75rem; /* touch target */
@@ -124,63 +124,36 @@ body {
 
 .name { width: 3.5rem; color: var(--muted); }
 
-/* Slider with a tick ("ruler" line) at every value. The thumb's centre runs
-   from half a thumb in from each end, so the ticks are inset by the same. */
-.ruler {
-  --thumb: 28px;
-  position: relative;
-  flex: 1;
-  display: flex;
+/* Number stepper: − value + with big tap targets (D25, replaces the sliders). */
+.stepper {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--accent);
+  border-radius: 0.6rem;
+  overflow: hidden;
+}
+.stepper button {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 0;
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.stepper button:active { background: var(--accent); color: var(--accent-fg); }
+.stepper button:disabled { opacity: 0.4; cursor: default; }
+.stepper button:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
+.stepper output {
+  min-width: 2.5rem;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
 }
-.ticks {
-  position: absolute;
-  left: calc(var(--thumb) / 2);
-  right: calc(var(--thumb) / 2);
-  top: 50%;
-  height: 16px;
-  transform: translateY(-50%);
-  display: flex;
-  justify-content: space-between;
-  pointer-events: none;
-}
-.ticks span { width: 0; border-left: 1.5px solid var(--muted); }
-.ruler input[type="range"] {
-  position: relative;
-  width: 100%;
-  height: 2.75rem;
-  margin: 0;
-  background: transparent;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.ruler input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--line);
-}
-.ruler input[type="range"]::-webkit-slider-thumb {
-  width: var(--thumb);
-  height: var(--thumb);
-  margin-top: calc(2px - var(--thumb) / 2);
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
-  -webkit-appearance: none;
-  appearance: none;
-}
-.ruler input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
-.ruler input[type="range"]::-moz-range-thumb {
-  width: var(--thumb);
-  height: var(--thumb);
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
-}
-.ruler input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); }
-.row output { width: 1.5rem; text-align: right; font-variant-numeric: tabular-nums; }
 
 .status { color: var(--muted); font-size: 0.875rem; }
 
@@ -216,15 +189,32 @@ body {
   white-space: nowrap;
 }
 
-/* Short landscape screens: controls move to a column on the right. */
-@media (orientation: landscape) and (max-height: 500px) {
-  body {
-    grid-template-areas: "top top" "banner banner" "preview controls";
-    grid-template-columns: minmax(0, 1fr) 18rem;
-    grid-template-rows: auto auto minmax(0, 1fr);
-  }
-  .controls { border-top: 0; border-left: 1px solid var(--line); align-content: start; overflow-y: auto; }
+/* Settings sheet (D25): a full-screen panel over the photo, below the debug
+   panel so a title long-press can still open debug. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  overflow-y: auto;
+  padding:
+    calc(env(safe-area-inset-top) + 0.5rem) calc(env(safe-area-inset-right) + 1rem)
+    calc(env(safe-area-inset-bottom) + 0.75rem) calc(env(safe-area-inset-left) + 1rem);
+  background: var(--bg);
+  color: var(--fg);
 }
+.overlay[hidden] { display: none; }
+.overlay-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 0.25rem 0 0.5rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.overlay-head strong { flex: 1; font-size: 1.1rem; }
 
 /* Debug panel (spec §7): a full-screen sheet over the app. */
 .debug-panel {

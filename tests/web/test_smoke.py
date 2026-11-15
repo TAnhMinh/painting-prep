@@ -102,10 +102,26 @@ class WebKitSmokeTest(unittest.TestCase):
             "document.getElementById('preview').dataset.rendered && !document.body.dataset.busy"
         )
 
+    def open_settings(self):
+        """Opens the Settings overlay if it's closed (the controls live in it,
+        D25). The open button is in the top bar, which the open overlay covers,
+        so only click it while the overlay is hidden."""
+        if self.page.get_attribute("#settings", "hidden") is not None:
+            self.page.click("#settings-open")
+            self.page.wait_for_selector("#settings:not([hidden])")
+
+    def set_n(self, n):
+        """Drives the n stepper (− / +) to `n` by tapping, as a user would."""
+        for _ in range(12):
+            current = int(self.page.text_content("#n-value"))
+            if current == n:
+                return
+            self.page.click("#n-inc" if current < n else "#n-dec")
+        raise AssertionError(f"could not set n to {n}")
+
     def set_study(self, n, greys):
-        self.page.eval_on_selector(
-            "#n", "(e, n) => { e.value = n; e.dispatchEvent(new Event('input')); }", n
-        )
+        self.open_settings()
+        self.set_n(n)
         self.page.click(f"label[for=greys-{greys}]")
         self.page.wait_for_function(
             f"document.getElementById('preview').dataset.rendered === '{n},{greys}'"
@@ -134,7 +150,7 @@ class WebKitSmokeTest(unittest.TestCase):
 
     def test_grid_overlay_draws_and_clears(self):
         self.load_fixture()
-        self.set_study(5, "even")
+        self.set_study(5, "even")  # leaves the Settings overlay open
         base = self.preview_signature()
 
         # Enabling a square grid must change the preview.

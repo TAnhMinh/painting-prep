@@ -13,21 +13,19 @@ const els = {
   file: $("file"),
   chooseBig: $("choose-big"),
   preview: $("preview"),
-  n: $("n"),
   nValue: $("n-value"),
-  nTicks: $("n-ticks"),
   status: $("status"),
   error: $("error"),
   errorText: $("error-text"),
   errorClose: $("error-close"),
   title: $("title"),
-  // Grid controls (M3).
-  k: $("grid-k"),
+  // Settings overlay (D25).
+  settings: $("settings"),
+  settingsOpen: $("settings-open"),
+  settingsClose: $("settings-close"),
+  // Grid controls (M3); counts are steppers now (D25).
   kValue: $("k-value"),
-  kTicks: $("k-ticks"),
-  rows: $("grid-rows"),
   rowsValue: $("rows-value"),
-  cols: $("grid-cols"),
   colsValue: $("cols-value"),
   gridSquareRow: $("grid-square-row"),
   gridRcRow: $("grid-rc-row"),
@@ -40,7 +38,7 @@ const state = {
   wasm: null,
   processor: null,
   loaded: false,
-  n: Number(els.n.value),
+  n: Number(els.nValue.textContent),
   bucketMean: $("greys-mean").checked,
   renderQueued: false,
   paintQueued: false,
@@ -50,9 +48,9 @@ const state = {
   grid: {
     mode: "off", // off | square | rowscols
     axis: "width", // width | height (square mode)
-    k: Number($("grid-k").value),
-    rows: Number($("grid-rows").value),
-    cols: Number($("grid-cols").value),
+    k: Number(els.kValue.textContent),
+    rows: Number(els.rowsValue.textContent),
+    cols: Number(els.colsValue.textContent),
     diagonals: false,
     over: "study", // study | original
     line: "two", // black | white | grey | two
@@ -383,11 +381,15 @@ function bindEvents() {
     const file = els.file.files?.[0];
     if (file) loadPhoto(file);
   });
-  els.n.addEventListener("input", () => {
-    state.n = Number(els.n.value);
-    els.nValue.textContent = state.n;
-    queueRender();
+  els.settingsOpen.addEventListener("click", () => {
+    els.settings.hidden = false;
   });
+  els.settingsClose.addEventListener("click", () => {
+    els.settings.hidden = true;
+  });
+  // n changes the study → queueRender; grid counts are grid-only → queuePaint
+  // (spec §5 caching).
+  bindStepper("n", 2, 10, () => state.n, (v) => (state.n = v), queueRender);
   for (const radio of document.querySelectorAll('input[name="greys"]')) {
     radio.addEventListener("change", () => {
       state.bucketMean = radio.value === "mean" && radio.checked;
@@ -417,15 +419,9 @@ function bindEvents() {
   bindRadio("grid-line", (value) => {
     state.grid.line = value;
   });
-  bindGridSlider(els.k, els.kValue, (v) => {
-    state.grid.k = v;
-  });
-  bindGridSlider(els.rows, els.rowsValue, (v) => {
-    state.grid.rows = v;
-  });
-  bindGridSlider(els.cols, els.colsValue, (v) => {
-    state.grid.cols = v;
-  });
+  bindStepper("k", 2, 16, () => state.grid.k, (v) => (state.grid.k = v), queuePaint);
+  bindStepper("rows", 1, 12, () => state.grid.rows, (v) => (state.grid.rows = v), queuePaint);
+  bindStepper("cols", 1, 12, () => state.grid.cols, (v) => (state.grid.cols = v), queuePaint);
 
   els.errorClose.addEventListener("click", clearError);
 }
@@ -441,15 +437,32 @@ function bindRadio(name, apply) {
   }
 }
 
-/** Wires a grid range slider: `apply` stores the value, update the output,
- *  repaint (coalesced). */
-function bindGridSlider(slider, output, apply) {
-  slider.addEventListener("input", () => {
-    const v = Number(slider.value);
+/**
+ * Wires a − / + number stepper (`<id>-dec`, `<id>-value`, `<id>-inc`). Each tap
+ * clamps the value ±1 to `[min, max]`, stores it via `apply`, updates the output,
+ * disables a button at its limit, then runs `after` (render or paint). Replaces
+ * the sliders, which were too small to hit on the phone (D25).
+ */
+function bindStepper(id, min, max, get, apply, after) {
+  const dec = $(`${id}-dec`);
+  const inc = $(`${id}-inc`);
+  const out = $(`${id}-value`);
+  const sync = () => {
+    const v = get();
+    out.textContent = v;
+    dec.disabled = v <= min;
+    inc.disabled = v >= max;
+  };
+  const step = (delta) => () => {
+    const v = Math.min(max, Math.max(min, get() + delta));
+    if (v === get()) return;
     apply(v);
-    output.textContent = v;
-    queuePaint();
-  });
+    sync();
+    after();
+  };
+  dec.addEventListener("click", step(-1));
+  inc.addEventListener("click", step(1));
+  sync();
 }
 
 /** Rows for the debug panel (spec §7). */
@@ -469,23 +482,11 @@ function debugInfo() {
   return rows;
 }
 
-/** One tick per slider value, so the ticks always match min and max. */
-function drawTicks(slider, container) {
-  const count = Number(slider.max) - Number(slider.min) + 1;
-  container.replaceChildren(...Array.from({ length: count }, () => document.createElement("span")));
-}
-
 async function main() {
-  els.nValue.textContent = state.n; // the browser may restore form values
-  els.kValue.textContent = state.grid.k;
-  els.rowsValue.textContent = state.grid.rows;
-  els.colsValue.textContent = state.grid.cols;
-  drawTicks(els.n, els.nTicks);
-  drawTicks(els.k, els.kTicks);
   updateGridVisibility();
   setInfoProvider(debugInfo);
   bindLongPress(els.title);
-  bindEvents();
+  bindEvents(); // also syncs each stepper's output + disabled state
   try {
     state.wasm = await init();
     state.processor = new Processor();
