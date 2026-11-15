@@ -11,7 +11,8 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use prep_core::{
-    Axis, GridMode, GridSpec, MAX_BUCKETS, MIN_BUCKETS, OutputGreys, composite_over_white,
+    Algorithm, Axis, GridMode, GridSpec, MAX_BUCKETS, MIN_BUCKETS, OutputGreys,
+    composite_over_white,
 };
 
 #[derive(Parser)]
@@ -51,6 +52,16 @@ struct ValuesArgs {
     #[arg(long, value_enum, default_value_t = Greys::Even)]
     greys: Greys,
 
+    /// Bucketing algorithm: equal intervals over the L* scale, equal pixel
+    /// counts (quantiles), or Jenks natural breaks.
+    #[arg(long, value_enum, default_value_t = Algo::Equal)]
+    algo: Algo,
+
+    /// Pre-blur ("squint") before bucketing, as a percentage of the short
+    /// side (0 = off).
+    #[arg(long, default_value_t = 0.0, value_parser = parse_blur)]
+    blur: f32,
+
     /// Input image (JPEG or PNG).
     input: PathBuf,
 
@@ -63,6 +74,22 @@ enum Greys {
     Even,
     Mean,
     Both,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Algo {
+    Equal,
+    Quantile,
+    Jenks,
+}
+
+/// Parses `--blur`, rejecting negatives (and non-numbers).
+fn parse_blur(s: &str) -> Result<f32, String> {
+    match s.parse::<f32>() {
+        Ok(v) if v >= 0.0 => Ok(v),
+        Ok(_) => Err("blur must be at least 0".into()),
+        Err(_) => Err(format!("`{s}` is not a number")),
+    }
 }
 
 #[derive(Args)]
@@ -151,6 +178,11 @@ fn run_values(args: &ValuesArgs) -> Result<(), Box<dyn Error>> {
     composite_over_white(&mut rgba, width, height)?;
     let analysis = values::analyse(&rgba, width, height)?;
 
+    let algo = match args.algo {
+        Algo::Equal => Algorithm::EqualIntervals,
+        Algo::Quantile => Algorithm::Quantile,
+        Algo::Jenks => Algorithm::NaturalBreaks,
+    };
     let modes: &[OutputGreys] = match args.greys {
         Greys::Even => &[OutputGreys::EvenlySpaced],
         Greys::Mean => &[OutputGreys::BucketMean],
@@ -158,7 +190,7 @@ fn run_values(args: &ValuesArgs) -> Result<(), Box<dyn Error>> {
     };
     let studies = modes
         .iter()
-        .map(|&mode| analysis.study(args.n, mode))
+        .map(|&mode| analysis.study(args.n, algo, mode, args.blur))
         .collect::<prep_core::Result<Vec<_>>>()?;
 
     let mut panels: Vec<&[u8]> = Vec::new();

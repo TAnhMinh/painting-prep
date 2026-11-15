@@ -41,6 +41,44 @@ fn values_both_writes_original_and_two_studies() {
 }
 
 #[test]
+fn algo_and_blur_run_and_name_the_algorithm() {
+    let input = temp_path("algo-in.png");
+    let output = temp_path("algo-out.png");
+    // A small gradient so quantile/Jenks have something to work with.
+    let rgba: Vec<u8> = (0u8..8)
+        .flat_map(|i| [i * 32, i * 32, i * 32, 255])
+        .collect();
+    image::save_buffer(&input, &rgba, 8, 1, image::ExtendedColorType::Rgba8).unwrap();
+
+    let run = Command::new(env!("CARGO_BIN_EXE_prep"))
+        .args(["values", "-n", "4", "--algo", "jenks", "--blur", "1"])
+        .args([&input, &output])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(stdout.contains("natural breaks"), "{stdout}");
+    assert!(stdout.contains("blur 1%"), "{stdout}");
+    assert!(image::open(&output).is_ok());
+
+    let _ = std::fs::remove_file(input);
+    let _ = std::fs::remove_file(output);
+}
+
+#[test]
+fn rejects_negative_blur() {
+    let run = Command::new(env!("CARGO_BIN_EXE_prep"))
+        .args(["values", "--blur", "-1", "in.png", "out.png"])
+        .output()
+        .unwrap();
+    assert!(!run.status.success());
+}
+
+#[test]
 fn rejects_bucket_count_out_of_range() {
     let run = Command::new(env!("CARGO_BIN_EXE_prep"))
         .args(["values", "-n", "11", "in.png", "out.png"])
