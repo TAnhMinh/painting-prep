@@ -44,9 +44,15 @@ const els = {
   exportDownload: $("export-download"),
   exportNoteRow: $("export-note-row"),
   exportNote: $("export-note"),
-  // Dock below the preview: the legend strip (F2).
+  // Dock below the preview: the legend strip + compare bar (F2).
+  previewArea: $("preview-area"),
+  compare: $("compare"),
   dock: $("dock"),
   legend: $("legend"),
+  compareBar: $("compare-bar"),
+  compareSource: $("compare-source"),
+  compareMode: $("compare-mode"),
+  compareHint: $("compare-hint"),
 };
 
 const state = {
@@ -80,6 +86,8 @@ const state = {
     over: "study", // study | original
     line: "two", // black | white | grey | two
   },
+  // Compare control (F2/F6): source is "off" | "original" (snapshots added later).
+  compare: { source: "off", mode: "flip", flipped: false, peeking: false },
 };
 
 /** Facts about the current photo and the last run, for the debug panel. */
@@ -268,6 +276,8 @@ async function loadPhoto(file) {
     state.loaded = true;
     updateDockVisibility();
     render();
+    renderCompareSources(); // "original" source now points at this photo
+    refreshCompare();
     els.preview.hidden = false;
     els.chooseBig.hidden = true;
     els.status.textContent =
@@ -510,9 +520,10 @@ function updateGridVisibility() {
   if (!on) els.gridNoteRow.hidden = true;
 }
 
-/** The dock (legend strip, F2) appears once a photo is loaded. */
+/** The dock (legend strip + compare bar, F2) appears once a photo is loaded. */
 function updateDockVisibility() {
   els.dock.hidden = !state.loaded;
+  els.compareBar.hidden = !state.loaded;
 }
 
 /**
@@ -550,6 +561,127 @@ function renderLegend() {
   );
   els.legend.dataset.count = String(greys.length);
   els.legend.hidden = false;
+}
+
+// --- Compare view (F2/F6): source = original (snapshots added in a later step) ---
+
+function sizeCompareToPreview() {
+  els.compare.width = els.preview.width;
+  els.compare.height = els.preview.height;
+}
+
+/** Paints the chosen comparison (the original) into the compare ctx. */
+function drawCompareInto(ctx) {
+  if (state.compare.source === "original" && state.originalImageData) {
+    ctx.putImageData(state.originalImageData, 0, 0);
+  }
+}
+
+/** Whether the compare canvas should be shown right now. */
+function compareVisible() {
+  if (state.compare.source === "off") return false;
+  if (state.compare.mode === "side") return true;
+  return state.compare.flipped || state.compare.peeking; // flip mode
+}
+
+function refreshCompareVisibility() {
+  els.compare.hidden = !compareVisible();
+}
+
+/**
+ * Redraws the compare layer and updates layout + button states. Called when the
+ * source, mode, or the underlying photo changes — never on a settings edit, so
+ * the comparison stays put while the live view updates underneath (F2/F6).
+ */
+function refreshCompare() {
+  const area = els.previewArea;
+  area.dataset.compare = state.compare.source; // "off" | "original"
+  area.dataset.compareMode = state.compare.mode;
+  area.classList.toggle(
+    "side",
+    state.compare.mode === "side" && state.compare.source !== "off",
+  );
+  if (state.compare.source !== "off") {
+    sizeCompareToPreview();
+    const ctx = els.compare.getContext("2d", { colorSpace: "srgb" });
+    ctx.clearRect(0, 0, els.compare.width, els.compare.height);
+    drawCompareInto(ctx);
+  }
+  refreshCompareVisibility();
+  // The tap/hold gesture lives on the photo, so the view buttons do nothing
+  // visible on their own; show a hint whenever that mode is armed with a source.
+  els.compareHint.hidden = !(state.compare.source !== "off" && state.compare.mode === "flip");
+  for (const b of els.compareSource.querySelectorAll("[data-source]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.source === state.compare.source));
+  }
+  for (const b of els.compareMode.querySelectorAll("[data-mode]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.mode === state.compare.mode));
+  }
+}
+
+function setCompareSource(source) {
+  state.compare.source = source;
+  state.compare.flipped = false;
+  state.compare.peeking = false;
+  refreshCompare();
+}
+
+function setCompareMode(mode) {
+  state.compare.mode = mode;
+  state.compare.flipped = false;
+  state.compare.peeking = false;
+  refreshCompare();
+}
+
+/** Rebuilds the compare source buttons: Off, Orig (snapshots added later). */
+function renderCompareSources() {
+  const add = (value, label) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-btn";
+    b.dataset.source = value;
+    b.textContent = label;
+    b.setAttribute("aria-pressed", String(state.compare.source === value));
+    b.addEventListener("click", () => setCompareSource(value));
+    return b;
+  };
+  els.compareSource.replaceChildren(add("off", "Off"), add("original", "Orig"));
+}
+
+/**
+ * Tap the preview to flip live↔compare, or hold to peek, in flip mode (F2/F6).
+ * Modelled on bindLongPress (debug.js). A no-op when compare is off or in side
+ * mode. The `.no-callout` class + the contextmenu guard stop the iOS callout.
+ */
+const COMPARE_HOLD_MS = 180;
+function bindCompareGesture(el) {
+  let timer = null;
+  let held = false;
+  const active = () => state.compare.source !== "off" && state.compare.mode === "flip";
+  el.addEventListener("pointerdown", () => {
+    if (!active()) return;
+    held = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      held = true;
+      state.compare.peeking = true;
+      refreshCompareVisibility();
+    }, COMPARE_HOLD_MS);
+  });
+  const end = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (!active()) return;
+    if (held) state.compare.peeking = false;
+    else state.compare.flipped = !state.compare.flipped;
+    refreshCompareVisibility();
+  };
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) {
+    el.addEventListener(type, end);
+  }
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
 function timedSync(label, fn) {
@@ -639,6 +771,13 @@ function bindEvents() {
   bindStepper("k", 2, 16, () => state.grid.k, (v) => (state.grid.k = v), queuePaint);
   bindStepper("rows", 1, 12, () => state.grid.rows, (v) => (state.grid.rows = v), queuePaint);
   bindStepper("cols", 1, 12, () => state.grid.cols, (v) => (state.grid.cols = v), queuePaint);
+
+  // Compare controls (F2): the view-mode buttons + the tap/hold gesture on the
+  // preview. Source buttons are built in renderCompareSources.
+  for (const b of els.compareMode.querySelectorAll("[data-mode]")) {
+    b.addEventListener("click", () => setCompareMode(b.dataset.mode));
+  }
+  bindCompareGesture(els.preview);
 
   // Export is two taps (spec F4): Export renders + encodes, then Share saves.
   els.exportBtn.addEventListener("click", exportImage);

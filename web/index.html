@@ -39,13 +39,29 @@
     <!-- The file input lives here, outside the overlay, so it's reachable even
          when the Settings sheet is closed (both "Choose photo" labels target it). -->
     <input id="file" type="file" accept="image/*" class="visually-hidden">
-    <canvas id="preview" hidden></canvas>
+    <canvas id="preview" class="no-callout" hidden></canvas>
+    <!-- Compare layer (F2/F6): the original (or later a snapshot), drawn over
+         (flip/hold) or beside (side-by-side) the live preview. Pointer events
+         pass through to #preview so a tap/hold on it drives the flip. -->
+    <canvas id="compare" hidden></canvas>
   </main>
 
-  <!-- Dock below the preview: the legend strip (F2). One grid row with a named
-       area so the empty dock can't shift the preview. -->
+  <!-- Dock below the preview: legend strip + compare bar (F2). One grid row with
+       a named area so the empty dock can't shift the preview. -->
   <section id="dock" class="dock" hidden>
     <div id="legend" class="legend" data-count="0" hidden></div>
+    <div id="compare-bar" class="compare-bar" hidden>
+      <span class="name">compare</span>
+      <div id="compare-source" class="segbtns" role="group" aria-label="Compare source"></div>
+      <span class="name">view</span>
+      <div id="compare-mode" class="segbtns" role="group" aria-label="Compare view mode">
+        <button type="button" class="seg-btn" data-mode="flip" aria-pressed="true">Tap / hold</button>
+        <button type="button" class="seg-btn" data-mode="side" aria-pressed="false">Side</button>
+      </div>
+    </div>
+    <!-- Shown only in tap/hold view, once a source is picked: the gesture lives on
+         the photo, so the "view" buttons don't change anything on their own. -->
+    <div id="compare-hint" class="status" hidden>Tap or hold the photo to compare.</div>
   </section>
 
   <!-- Full-screen Settings sheet (D25): the photo stays full-screen; this opens

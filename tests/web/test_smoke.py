@@ -137,6 +137,13 @@ class WebKitSmokeTest(unittest.TestCase):
             self.page.click("#settings-open")
             self.page.wait_for_selector("#settings:not([hidden])")
 
+    def close_settings(self):
+        """Closes the Settings overlay if it's open, so the controls behind it
+        (top bar, compare bar) are reachable."""
+        if self.page.get_attribute("#settings", "hidden") is None:
+            self.page.click("#settings-close")
+            self.page.wait_for_selector("#settings", state="hidden")
+
     def set_n(self, n):
         """Drives the n stepper (− / +) to `n` by tapping, as a user would."""
         for _ in range(12):
@@ -275,6 +282,24 @@ class WebKitSmokeTest(unittest.TestCase):
         self.page.wait_for_function(
             "document.getElementById('legend').dataset.count === '3'"
         )
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_compare_original_is_display_only(self):
+        self.load_fixture()
+        self.set_study(5, "even")
+        self.close_settings()
+        base = self.preview_signature()
+        # Side-by-side so the compare layer is shown without a flip gesture.
+        self.page.click("#compare-mode [data-mode=side]")
+        self.page.click("#compare-source [data-source=original]")
+        self.assertFalse(self.page.is_hidden("#compare"))
+        self.assertEqual(self.page.get_attribute("#preview-area", "data-compare"), "original")
+        # Compare is a separate layer: the live preview pixels are untouched.
+        self.assertEqual(self.preview_signature(), base)
+        # Turning compare off hides the layer again.
+        self.page.click("#compare-source [data-source=off]")
+        self.assertTrue(self.page.is_hidden("#compare"))
         self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
         self.assertEqual(self.page_errors, [])
 

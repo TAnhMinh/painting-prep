@@ -38,6 +38,10 @@ body {
      takes no row, so implicit placement would shift the preview up a row. */
   grid-template-areas: "top" "banner" "update" "preview" "dock";
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  /* One column clamped to the viewport: without this the single column is `auto`
+     and the widest row (side-by-side compare) would stretch every row, pushing
+     the top bar off-screen (no horizontal page scroll at phone width). */
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   padding:
@@ -100,6 +104,7 @@ body {
 
 .preview {
   grid-area: preview;
+  position: relative; /* the compare layer overlays the preview in flip mode */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -116,6 +121,24 @@ body {
   height: auto;
 }
 .preview canvas[hidden], .preview .button[hidden] { display: none; }
+
+/* Compare layer (F2/F6): overlaid centered on the preview in flip mode; taps
+   pass through to the preview so a tap/hold drives the flip. */
+#compare {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+#compare[hidden] { display: none; }
+
+/* Side-by-side: both canvases in flow, each at most half the width (less half the
+   gap, so the two plus the gap never exceed the row). */
+.preview.side { gap: var(--gap); }
+.preview.side #preview,
+.preview.side #compare { max-width: calc(50% - var(--gap)); min-width: 0; }
+.preview.side #compare { position: static; transform: none; }
 
 /* The control rows, now inside the Settings overlay. */
 .controls {
@@ -216,6 +239,22 @@ body {
   min-width: 0;
 }
 .legend-pct { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+
+/* Compare bar (F2/F6): a source button group + a view-mode group. */
+.compare-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.compare-bar[hidden] { display: none; }
+.segbtns { display: inline-flex; gap: 0.25rem; flex-wrap: wrap; }
+.seg-btn {
+  min-height: 2.5rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+.seg-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 
 /* Hidden from view but still tappable via its <label> (display: none can
    stop iOS from opening the picker). */
