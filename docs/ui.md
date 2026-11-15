@@ -7,7 +7,7 @@
 - **The photo comes first.** The preview gets as much of the screen as possible. Controls take a compact panel, not a long scrolling page.
 - **Controls sit within thumb reach.** In portrait they go at the bottom; the top of an iPhone screen is hard to reach one-handed.
 - **Undo, redo, reset and pin are always visible** (spec UI). They live in the top bar, which never scrolls.
-- **One control section at a time.** Tabs switch between Photo, Values, Grid and Export, so each panel stays two or three rows tall.
+- **Controls live in a full-screen Settings overlay** (D25, from M3.5). The photo is full-screen; a Settings button opens the overlay with all controls, and closing it reveals the photo with the choices applied. (This replaced the tab-bar idea below; see the M3.5 update.)
 - **Safe areas:** `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`, and the page is padded with `env(safe-area-inset-*)`. Nothing interactive goes under the notch, the Dynamic Island or the home indicator.
 
 ## Portrait (primary)
@@ -104,3 +104,28 @@ There are no tabs yet. M2 shows the photo button and the Values panel stacked un
 ## M3 update (2026-11-09)
 
 M3 added the Grid panel but **kept everything stacked** under the preview — the Values rows, then the Grid rows (grid mode, axis + k or rows + cols, diagonals + over, line style, and a partial-cell note). The tab bar sketched above is **deferred**: with two short panels the single scroll is fine on the phone, and tabs are extra UI and test surface for no clear gain yet. Revisit tabs when Export (M4) and the snapshot strip (M6) make the control area too tall. The grid controls follow the same patterns as M2 (segmented radios, `.ruler` sliders with ticks for k).
+
+## M3.5 update (2026-11-15) — Settings overlay + steppers (D25)
+
+The on-device M3 check showed the stacked controls ate the preview and the grid sliders were too small to tap. Portrait is now:
+
+```
+┌─────────────────────────────────┐        Settings overlay (full-screen, over the photo)
+│ Painting Prep        [Settings] │        ┌─────────────────────────────────┐
+├─────────────────────────────────┤        │ Settings               [ Done ] │
+│                                 │        ├─────────────────────────────────┤
+│                                 │        │ [ Choose photo ]   4032 × 3024  │
+│            preview              │        │ n      [ − ]  5  [ + ]          │
+│      (fills the screen)         │  tap → │ greys  [Even]  Mean             │
+│                                 │        │ grid   Off [Square] R×C         │
+│                                 │        │ axis   [Width] Height   k [−6+] │
+│                                 │        │ diag   Off [On]   over [Study]… │
+│                                 │        │ line   Black White Grey [Two]   │
+└─────────────────────────────────┘        └─────────────────────────────────┘
+```
+
+- The **tab bar above is superseded** by this single overlay. Export (M4) becomes a section at the bottom of the overlay (two-step Export → Share, spec F4), not a separate tab.
+- **Steppers** (`− value +`, clamped, button disabled at its limit) replace the `.ruler` sliders for n and the grid counts. Segmented radios are unchanged.
+- The `#file` input stays **outside** the overlay (in the preview area) so both "Choose photo" labels reach it and the WebKit test can set files without opening the overlay.
+- Rows with two controls (axis+k, diag+over) **wrap** at phone width.
+- Debug panel and error banner are unchanged (the debug sheet sits above the Settings overlay so a title long-press still works).

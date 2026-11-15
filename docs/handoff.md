@@ -10,6 +10,39 @@ GitHub; `gh` isn't installed, so CI is checked by hand in the Actions tab._
 
 ---
 
+## Session of 2026-11-15 — M3.5 UI rework (overlay + steppers)
+
+Milestones done: **M0, M1, M2, M3**, and now **M3.5** (a pre-M4 UI refinement).
+Next: large-photo retest, then **M4 (export)**.
+
+### What happened
+- On-device M3 check: grid overlay works, but in portrait the stacked controls
+  left the photo too small and the grid sliders were too small to tap.
+- **M3.5 (D25), web-only:** photo is full-screen; a **Settings** button opens a
+  **full-screen overlay** with all value + grid controls (**Done** closes it);
+  **− / + steppers** replace the n/grid sliders. Rows with two controls wrap at
+  phone width. The `#file` input stays outside the overlay.
+  - `web/index.html`, `web/style.css`, `web/app.js` (new `bindStepper`; removed
+    `drawTicks`/`bindGridSlider`; overlay open/close), `tests/web/test_smoke.py`
+    (opens the overlay, taps the n stepper), docs (D25, `ui.md` M3.5, `running.md`
+    Private-tab note, this file, `CLAUDE.md`).
+- Verified: full check green; **4/4 WebKit tests**; WebKit screenshots at 390 px;
+  **confirmed on the iPhone** (after clearing a stale `app.js` cache — test in a
+  Safari **Private tab**, now documented).
+
+### Not yet done
+- **Not committed or pushed yet.**
+- **Large-photo retest** (64 MP / 102 MP, deferred from M2) still pending — do it
+  before M4 export, record in D23.
+
+### Next
+Commit + push M3.5 (ask first), confirm CI green, do the large-photo retest, then
+**M4 export** per the approved plan
+(`~/.claude/plans/i-would-like-to-ethereal-spindle.md`): export + Pages deploy
+first, service worker + manifest second; export UI goes in the Settings overlay.
+
+---
+
 ## Session of 2026-11-09 — M3 grid overlay: COMPLETE and PUSHED
 
 Milestones done: **M0, M1, M2, M3.** Next: **M4 (export).**

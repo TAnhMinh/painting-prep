@@ -31,7 +31,7 @@ Leave the server running in that terminal; Ctrl-C stops it.
 
 ## Notes
 - Plain HTTP on the LAN → no service worker, no Web Share (that's M4, over HTTPS/Pages).
-- Safari caches `app.js`. After a rebuild, **close and reopen the Safari tab** to pick up changes.
+- **Test in a Safari Private tab.** Safari caches `app.js` aggressively, and a cached old `app.js` running against new `index.html` throws on load and silently breaks every control (seen 2026-11-15: the old slider lookup `$("n")` returned null). A Private tab uses no HTTP cache, so it always loads the current files — the reliable dev loop. (Normal tab alternative: Settings → Safari → Advanced → Website Data → delete the LAN IP's entry, then reload.)
 - A quick local check that the server is up:
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/
