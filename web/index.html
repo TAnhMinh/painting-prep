@@ -71,6 +71,26 @@
           <label for="greys-mean">Mean</label>
         </div>
       </div>
+      <div class="row" role="radiogroup" aria-label="Algorithm">
+        <span class="name">algo</span>
+        <div class="segmented">
+          <input id="algo-equal" type="radio" name="algo" value="equal" checked>
+          <label for="algo-equal">Equal</label>
+          <input id="algo-quantile" type="radio" name="algo" value="quantile">
+          <label for="algo-quantile">Quant</label>
+          <input id="algo-jenks" type="radio" name="algo" value="jenks">
+          <label for="algo-jenks">Jenks</label>
+        </div>
+      </div>
+      <div class="row">
+        <span class="name">blur</span>
+        <div class="stepper">
+          <button id="blur-dec" type="button" aria-label="decrease blur">−</button>
+          <output id="blur-value" for="blur-dec blur-inc">0</output>
+          <button id="blur-inc" type="button" aria-label="increase blur">+</button>
+        </div>
+        <span class="name">%</span>
+      </div>
       <div class="row" role="radiogroup" aria-label="Grid">
         <span class="name">grid</span>
         <div class="segmented">

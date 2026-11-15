@@ -150,8 +150,9 @@ class WebKitSmokeTest(unittest.TestCase):
         self.open_settings()
         self.set_n(n)
         self.page.click(f"label[for=greys-{greys}]")
+        # data-rendered is "n,greys,algo,blur"; set_study leaves algo/blur default.
         self.page.wait_for_function(
-            f"document.getElementById('preview').dataset.rendered === '{n},{greys}'"
+            f"document.getElementById('preview').dataset.rendered === '{n},{greys},equal,0'"
         )
 
     def preview_signature(self):
@@ -192,6 +193,30 @@ class WebKitSmokeTest(unittest.TestCase):
         # Turning the grid off returns the preview to the plain study.
         self.page.click("label[for=grid-off]")
         self.assertEqual(self.preview_signature(), base)
+
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_algorithm_and_blur_run(self):
+        self.load_fixture()
+        self.set_study(5, "even")  # 5,even,equal,0; leaves the overlay open
+        base = self.preview_signature()
+
+        # The algorithm control is wired: switching it re-posterizes (the hook
+        # updates), and on this varied fixture the preview changes.
+        self.page.click("label[for=algo-jenks]")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '5,even,jenks,0'"
+        )
+        self.assertNotEqual(self.preview_signature(), base)
+
+        # Blur (the squint) visibly changes the preview too.
+        blurred_base = self.preview_signature()
+        self.page.click("#blur-inc")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '5,even,jenks,1'"
+        )
+        self.assertNotEqual(self.preview_signature(), blurred_base)
 
         self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
         self.assertEqual(self.page_errors, [])

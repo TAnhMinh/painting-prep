@@ -17,6 +17,7 @@ const els = {
   chooseBig: $("choose-big"),
   preview: $("preview"),
   nValue: $("n-value"),
+  blurValue: $("blur-value"),
   status: $("status"),
   error: $("error"),
   errorText: $("error-text"),
@@ -51,6 +52,10 @@ const state = {
   loaded: false,
   n: Number(els.nValue.textContent),
   bucketMean: $("greys-mean").checked,
+  // Bucketing algorithm (M5): equal | quantile | jenks.
+  algo: document.querySelector('input[name="algo"]:checked').value,
+  // Pre-blur ("squint") as a percentage of the short side (0 = off, §6).
+  blur: Number(els.blurValue.textContent),
   renderQueued: false,
   paintQueued: false,
   // The composited-over-white preview pixels, kept so the grid can be drawn
@@ -280,11 +285,13 @@ async function loadPhoto(file) {
   }
 }
 
-/** Re-posterizes the study for the current n/greys, then repaints. */
+/** Re-posterizes the study for the current n/greys/algorithm/blur, then repaints. */
 function render() {
   if (!state.loaded) return;
   try {
-    timedSync("render", () => state.processor.render(state.n, state.bucketMean));
+    timedSync("render", () =>
+      state.processor.render(state.n, state.bucketMean, state.algo, state.blur),
+    );
   } catch (e) {
     console.error(e);
     showError(`Couldn't render the study: ${e.message ?? e}`);
@@ -320,7 +327,8 @@ function paint() {
       els.gridNoteRow.hidden = partialRemainder(p.width(), p.height(), state.grid) <= 0;
     }
     // Signals the finished paint to the WebKit smoke test.
-    els.preview.dataset.rendered = `${state.n},${state.bucketMean ? "mean" : "even"}`;
+    els.preview.dataset.rendered =
+      `${state.n},${state.bucketMean ? "mean" : "even"},${state.algo},${state.blur}`;
   } catch (e) {
     console.error(e);
     showError(`Couldn't draw the preview: ${e.message ?? e}`);
@@ -432,6 +440,8 @@ async function exportImage() {
           target.height,
           state.n,
           state.bucketMean,
+          state.algo,
+          state.blur,
         );
         const p = state.processor;
         // View made after renderExport's allocations (spec §7).
@@ -545,6 +555,15 @@ function bindEvents() {
       render();
     });
   }
+  // Algorithm + blur change the study, so they re-posterize (not just paint).
+  for (const radio of document.querySelectorAll('input[name="algo"]')) {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      state.algo = radio.value;
+      render();
+    });
+  }
+  bindStepper("blur", 0, 10, () => state.blur, (v) => (state.blur = v), queueRender);
 
   // Grid controls (M3). All are grid-only changes, so they repaint without
   // re-posterizing — except nothing here touches n/greys.
@@ -626,7 +645,7 @@ function debugInfo() {
     working: size(stats.working),
     export: size(stats.export),
     decodePath: stats.decodePath ?? "–",
-    settings: `n = ${state.n}, greys = ${state.bucketMean ? "mean" : "even"}, grid = ${state.grid.mode}`,
+    settings: `n = ${state.n}, greys = ${state.bucketMean ? "mean" : "even"}, algo = ${state.algo}, blur = ${state.blur}%, grid = ${state.grid.mode}`,
     // Wasm memory only grows (spec §7), so this is the session's peak.
     wasmMemory: state.wasm ? `${(state.wasm.memory.buffer.byteLength / 2 ** 20).toFixed(1)} MB` : "–",
   };
