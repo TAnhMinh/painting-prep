@@ -10,10 +10,24 @@ GitHub; `gh` isn't installed, so CI is checked by hand in the Actions tab._
 
 ---
 
-## Session of 2026-11-15 — M3.5 UI rework (overlay + steppers)
+## Session of 2026-11-15 — M3.5 UI rework + M4 export Step 1 (export + deploy)
 
-Milestones done: **M0, M1, M2, M3**, and now **M3.5** (a pre-M4 UI refinement).
-Next: large-photo retest, then **M4 (export)**.
+Milestones done: **M0, M1, M2, M3**, **M3.5** (pre-M4 UI refinement), and **M4
+Step 1** (export + GitHub Pages deploy). Next: **M4 Step 2** (manifest + service
+worker). The app is live at `https://tanhminh.github.io/painting-prep/`.
+
+### M4 Step 1 — export + deploy (D26), pushed
+- **B1 `renderExport` (wasm):** export-resolution study that reuses the preview's
+  thresholds/greys (recomputed from the retained histogram, D11/D12); separate
+  export buffers (D15). +3 tests.
+- **B2 web two-step export:** `decodeToSize` at a 12 MP area cap, offscreen render
+  (study via `renderExport`, or grid over original), PNG encode, **Export → Share**
+  with an `<a download>` **Save** fallback (F4). `drawGrid(ctx, w, h)` now scales
+  to export size. WebKit smoke +1 (exported PNG byte-matches the CLI).
+- **B3 deploy:** `.github/workflows/deploy.yml` (Actions Pages source; OIDC, no
+  secret). Repo made **public** 2026-11-15 (clean history scan) so Pages works on
+  Free. Deploy green; export-to-Photos confirmed on the live HTTPS site.
+- **Deferred ideas:** `BACKLOG.md` (custom Pages domain — base-path caveat).
 
 ### What happened
 - On-device M3 check: grid overlay works, but in portrait the stacked controls
@@ -30,16 +44,18 @@ Next: large-photo retest, then **M4 (export)**.
   **confirmed on the iPhone** (after clearing a stale `app.js` cache — test in a
   Safari **Private tab**, now documented).
 
-### Not yet done
-- **Not committed or pushed yet.**
-- **Large-photo retest** (64 MP / 102 MP, deferred from M2) still pending — do it
-  before M4 export, record in D23.
+### Still open
+- **Canvas size limit / large-photo check** (64 MP / 102 MP, deferred from M2):
+  basic export works, the real limit is unmeasured. Do it on the live site;
+  record in D23. Lower `EXPORT_MAX_PX` / refuse above a measured limit if a big
+  photo fails.
 
 ### Next
-Commit + push M3.5 (ask first), confirm CI green, do the large-photo retest, then
-**M4 export** per the approved plan
-(`~/.claude/plans/i-would-like-to-ethereal-spindle.md`): export + Pages deploy
-first, service worker + manifest second; export UI goes in the Settings overlay.
+**M4 Step 2** per the approved plan
+(`~/.claude/plans/i-would-like-to-ethereal-spindle.md`): PWA **manifest +
+service worker** (install, offline, "reload to update" hint) — completes spec M4.
+Mind the `/painting-prep/` base path for the service-worker scope and precache
+list.
 
 ---
 
