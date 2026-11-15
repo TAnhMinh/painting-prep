@@ -138,8 +138,8 @@ class WebKitSmokeTest(unittest.TestCase):
             self.page.wait_for_selector("#settings:not([hidden])")
 
     def close_settings(self):
-        """Closes the Settings overlay if it's open, so the controls behind it
-        (top bar, compare bar) are reachable."""
+        """Closes the Settings overlay if it's open, so the top-bar F6 controls
+        (undo/redo/reset/pin) are reachable."""
         if self.page.get_attribute("#settings", "hidden") is None:
             self.page.click("#settings-close")
             self.page.wait_for_selector("#settings", state="hidden")
@@ -269,6 +269,8 @@ class WebKitSmokeTest(unittest.TestCase):
         self.assertEqual(self.page_errors, [])
 
 
+    # --- M5 Phase B: legend, compare, remembered settings (F2/F5) ---
+
     def test_legend_strip_shows_and_tracks_n(self):
         self.load_fixture()
         # The legend appears after the first render, with one cell per bucket.
@@ -301,6 +303,133 @@ class WebKitSmokeTest(unittest.TestCase):
         self.page.click("#compare-source [data-source=off]")
         self.assertTrue(self.page.is_hidden("#compare"))
         self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_settings_are_remembered_across_reload(self):
+        self.load_fixture()
+        self.set_study(7, "mean")
+        self.page.click("label[for=algo-quantile]")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '7,mean,quantile,0'"
+        )
+        # A reload keeps the same storage; settings come back (F5).
+        self.page.reload()
+        self.page.wait_for_selector("body[data-wasm=ready]")
+        self.assertEqual(int(self.page.text_content("#n-value")), 7)
+        self.assertTrue(self.page.is_checked("#greys-mean"))
+        self.assertTrue(self.page.is_checked("#algo-quantile"))
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_corrupt_settings_fall_back_to_defaults(self):
+        # Garbage in storage must not break startup (F5): defaults load silently.
+        self.page.evaluate("localStorage.setItem('painting-prep:settings', '{not json')")
+        self.page.reload()
+        self.page.wait_for_selector("body[data-wasm=ready]")
+        self.assertEqual(int(self.page.text_content("#n-value")), 5)
+        self.assertTrue(self.page.is_checked("#greys-even"))
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    # --- M6: undo/redo, reset, snapshots (F6) ---
+
+    def test_undo_redo_round_trip(self):
+        # The milestone "Done when": 3 → 4 → undo gives a pixel-identical study.
+        self.load_fixture()
+        self.set_study(3, "even")
+        sig3 = self.preview_signature()
+        self.set_n(4)
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '4,even,equal,0'"
+        )
+        self.close_settings()
+        self.page.click("#undo")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '3,even,equal,0'"
+        )
+        self.assertEqual(self.preview_signature(), sig3)  # pixel-identical (D15)
+        self.page.click("#redo")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '4,even,equal,0'"
+        )
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_reset_is_undoable(self):
+        self.load_fixture()
+        self.set_study(5, "even")
+        # Move several settings away from their defaults.
+        self.set_n(8)
+        self.page.click("label[for=greys-mean]")
+        self.page.click("label[for=algo-jenks]")
+        self.page.click("label[for=grid-square]")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '8,mean,jenks,0'"
+        )
+        self.close_settings()
+        # Reset returns everything to defaults (grid off, 5/even/equal/0).
+        self.page.click("#reset")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '5,even,equal,0'"
+        )
+        self.assertTrue(self.page.is_checked("#grid-off"))
+        # Reset is an ordinary step, so it is undoable.
+        self.assertEqual(self.page.get_attribute("#undo", "disabled"), None)
+        self.page.click("#undo")
+        self.page.wait_for_function(
+            "document.getElementById('preview').dataset.rendered === '8,mean,jenks,0'"
+        )
+        self.assertTrue(self.page.is_checked("#grid-square"))
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def pin_to(self, count):
+        """Clicks Pin and waits for the strip to reach `count` (pin is async)."""
+        self.page.click("#pin")
+        self.page.wait_for_function(
+            f"document.getElementById('snaps').dataset.count === '{count}'"
+        )
+
+    def test_snapshot_pin_compare_and_cap(self):
+        self.load_fixture()
+        self.set_study(5, "even")
+        self.close_settings()
+        self.pin_to("1")
+        self.assertFalse(self.page.is_hidden("#snaps"))
+        self.assertEqual(self.page.evaluate("prepDebug.snapshotCount"), 1)
+        # Compare the live view against the snapshot (side-by-side), display-only.
+        base = self.preview_signature()
+        self.page.click("#compare-mode [data-mode=side]")
+        self.page.click("#compare-source [data-source^=snap]")
+        self.assertFalse(self.page.is_hidden("#compare"))
+        self.assertEqual(self.preview_signature(), base)
+        self.page.click("#compare-source [data-source=off]")
+        # Fill to the cap of 4.
+        self.pin_to("2")
+        self.pin_to("3")
+        self.pin_to("4")
+        # A 5th pin asks to replace one instead of adding a 5th (D16).
+        self.page.click("#pin")
+        self.page.wait_for_selector("#snap-banner:not([hidden])")
+        self.assertEqual(self.page.get_attribute("#snaps", "data-count"), "4")
+        # Tapping a thumbnail in replace mode swaps it and clears the prompt.
+        self.page.click(".snap[data-snap-index='0']")
+        self.page.wait_for_selector("#snap-banner", state="hidden")
+        self.assertEqual(self.page.get_attribute("#snaps", "data-count"), "4")
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_snapshots_cleared_on_new_photo(self):
+        self.load_fixture()
+        self.close_settings()
+        self.pin_to("1")
+        # Loading a photo again clears the snapshots (D16).
+        self.load_fixture()
+        self.page.wait_for_function(
+            "document.getElementById('snaps').dataset.count === '0'"
+        )
+        self.assertTrue(self.page.is_hidden("#snaps"))
+        self.assertEqual(self.page.evaluate("prepDebug.snapshotCount"), 0)
         self.assertEqual(self.page_errors, [])
 
 

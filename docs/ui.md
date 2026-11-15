@@ -146,3 +146,29 @@ Verified in WebKit at 390 px: both rows fit without overflow. Still pending for
 Phase B: the **legend strip** (sketched above, below the photo) + a
 legend-in-export toggle, **compare** (hold the photo to peek the original), and
 remembered settings (F5).
+
+## M5 Phase B + M6 update (2026-11-15) — dock, compare, top-bar tools (D29, D30)
+
+The sketched top bar and the below-the-photo strip are now built.
+
+- **Top bar** now carries the four F6 controls as compact icon buttons next to the
+  title, with the **Settings** button at the end: `Painting Prep  ↶ ↷ ⟲ 📌  [Settings]`.
+  They sit inside the existing `top` grid area (no new body rows), always visible,
+  never scroll (spec UI). The title ellipsises so everything fits at phone width.
+- **Dock** — one new grid row below the preview (`grid-area: dock`), shown once a
+  photo is loaded, holding, top to bottom: the **legend strip** (n greys dark→light
+  with each bucket's %), the **compare bar**, a replace-snapshot notice (only in the
+  max-4 flow), and the **snapshot thumbnails** (only when there are any).
+- **Compare bar** — a **source** group (`Off · Orig · S1…S4`, snapshots appearing as
+  pinned) and a **view** group (`Tap / hold · Side`). The view buttons pick *how* the
+  comparison is shown, not an action: in **Tap / hold** the gesture lives on the
+  full-screen photo (tap flips, press-and-hold peeks), so a hint line — "Tap or hold
+  the photo to compare." — appears whenever that view is armed with a source, since the
+  buttons do nothing visible on their own; **Side** lays the live view and the
+  comparison at half width each. The compare image is a separate `#compare` canvas
+  overlaid on the preview, so it never disturbs the render pipeline.
+- **Snapshots** — up to four thumbnails; tap to restore that snapshot's settings. The
+  compare bar (not the thumbnail) is what pins a snapshot as the comparison target.
+- Everything was verified in WebKit at phone width via the smoke test; **on-device
+  feel (top-bar fit, hold-to-peek, instant flips, legend-in-export band) is still to
+  be checked** — see `handoff.md`.

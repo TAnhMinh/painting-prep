@@ -45,12 +45,16 @@ window.addEventListener("unhandledrejection", (e) => {
   record("error", ["unhandled rejection:", e.reason]);
 });
 
-// Read by the WebKit smoke test.
+// Read by the WebKit smoke test. The undo/redo/snapshot counters are updated by
+// app.js (updateHistoryButtons / renderSnapshotStrip) as the state changes.
 window.prepDebug = {
   get errorCount() {
     return errorCount;
   },
   entries,
+  undoDepth: 0,
+  redoDepth: 0,
+  snapshotCount: 0,
 };
 
 /** Registers a function returning `{ label: value }` rows for the panel. */

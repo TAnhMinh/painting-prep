@@ -15,7 +15,9 @@ const $ = (id) => document.getElementById(id);
 const els = {
   file: $("file"),
   chooseBig: $("choose-big"),
+  previewArea: $("preview-area"),
   preview: $("preview"),
+  compare: $("compare"),
   nValue: $("n-value"),
   blurValue: $("blur-value"),
   status: $("status"),
@@ -25,6 +27,23 @@ const els = {
   updateBanner: $("update-banner"),
   updateReload: $("update-reload"),
   title: $("title"),
+  // Top-bar F6 controls (M6); always reachable, never scroll (spec UI).
+  undo: $("undo"),
+  redo: $("redo"),
+  reset: $("reset"),
+  pin: $("pin"),
+  // Dock below the preview: legend strip, compare bar, snapshot thumbnails.
+  dock: $("dock"),
+  legend: $("legend"),
+  compareBar: $("compare-bar"),
+  compareSource: $("compare-source"),
+  compareMode: $("compare-mode"),
+  compareHint: $("compare-hint"),
+  snaps: $("snaps"),
+  snapBanner: $("snap-banner"),
+  snapBannerText: $("snap-banner-text"),
+  snapBannerCancel: $("snap-banner-cancel"),
+  legendExport: $("legend-export"),
   // Settings overlay (D25).
   settings: $("settings"),
   settingsOpen: $("settings-open"),
@@ -44,15 +63,6 @@ const els = {
   exportDownload: $("export-download"),
   exportNoteRow: $("export-note-row"),
   exportNote: $("export-note"),
-  // Dock below the preview: the legend strip + compare bar (F2).
-  previewArea: $("preview-area"),
-  compare: $("compare"),
-  dock: $("dock"),
-  legend: $("legend"),
-  compareBar: $("compare-bar"),
-  compareSource: $("compare-source"),
-  compareMode: $("compare-mode"),
-  compareHint: $("compare-hint"),
 };
 
 const state = {
@@ -65,8 +75,23 @@ const state = {
   algo: document.querySelector('input[name="algo"]:checked').value,
   // Pre-blur ("squint") as a percentage of the short side (0 = off, §6).
   blur: Number(els.blurValue.textContent),
+  // Include the legend strip in the exported image (F2, default off).
+  legendInExport: false,
   renderQueued: false,
   paintQueued: false,
+  // Undo/redo (F6/D15): an array of settings objects with a cursor. In memory,
+  // capped at HISTORY_MAX, survives loading a new photo, never persisted.
+  history: [],
+  cursor: -1,
+  // True while applySettings writes state+DOM, so handlers don't re-push history
+  // or re-persist mid-apply.
+  applying: false,
+  // Pinned snapshots (F6/D16): { id, settings, bitmap }. ImageBitmaps live in
+  // JS (not wasm, §7), max SNAP_MAX, cleared on new photo, never persisted.
+  snapshots: [],
+  pendingPin: false, // waiting for the user to pick a snapshot to replace
+  // Compare control (F2/F6): source is "off" | "original" | "snap:<id>".
+  compare: { source: "off", mode: "flip", flipped: false, peeking: false },
   // The composited-over-white preview pixels, kept so the grid can be drawn
   // over the original photo (not just the study). Replaced on each load.
   originalImageData: null,
@@ -86,9 +111,182 @@ const state = {
     over: "study", // study | original
     line: "two", // black | white | grey | two
   },
-  // Compare control (F2/F6): source is "off" | "original" (snapshots added later).
-  compare: { source: "off", mode: "flip", flipped: false, peeking: false },
 };
+
+// --- Settings object, control registry, undo/redo, persistence (F5/F6) ---
+
+/** The longest undo history kept in memory (spec F6). */
+const HISTORY_MAX = 50;
+/** localStorage key + schema version for remembered settings (F5/D7). */
+const SETTINGS_KEY = "painting-prep:settings";
+const SETTINGS_VERSION = 1;
+
+/**
+ * A JSON-safe clone of just the undoable / persisted settings (spec F5, F6).
+ * An explicit literal (not a clone of `state`) so non-settings fields like the
+ * image buffers and history never leak into the undo stack or localStorage.
+ */
+function captureSettings() {
+  return {
+    n: state.n,
+    bucketMean: state.bucketMean,
+    algo: state.algo,
+    blur: state.blur,
+    legendInExport: state.legendInExport,
+    grid: { ...state.grid },
+  };
+}
+
+/** The pristine defaults, captured once from the initial (DOM-default) state,
+ *  before any F5 restore. Reset returns here (F6). */
+const DEFAULTS = captureSettings();
+
+/** Syncers re-apply `state` to the DOM controls. Each control registers one so
+ *  undo/redo/reset/restore can refresh the UI without firing change handlers. */
+const syncers = [];
+function syncControls() {
+  for (const fn of syncers) fn();
+}
+
+/**
+ * Writes a settings object back into `state` and the DOM, then recomputes.
+ * Guarded by `state.applying` so it never pushes history or persists mid-apply
+ * (setting `.checked`/`.textContent` programmatically also doesn't fire change).
+ * `render()` is a no-op until a photo is loaded, so restoring before load is fine.
+ */
+function applySettings(s) {
+  state.applying = true;
+  state.n = s.n;
+  state.bucketMean = s.bucketMean;
+  state.algo = s.algo;
+  state.blur = s.blur;
+  state.legendInExport = s.legendInExport;
+  Object.assign(state.grid, s.grid);
+  syncControls();
+  updateGridVisibility();
+  state.applying = false;
+  render();
+}
+
+function sameSettings(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Records the current settings as one undo step (spec F6). The single push site:
+ * every finished control change calls it after mutating state and recomputing.
+ * Drops the redo tail, dedups no-ops, caps the history, and persists (F5).
+ */
+function commit() {
+  if (state.applying) return;
+  const snap = captureSettings();
+  if (state.cursor >= 0 && sameSettings(snap, state.history[state.cursor])) {
+    saveSettings(); // settings unchanged for history, but persist defensively
+    return;
+  }
+  state.history.length = state.cursor + 1; // drop any redo tail
+  state.history.push(snap);
+  if (state.history.length > HISTORY_MAX) state.history.shift();
+  state.cursor = state.history.length - 1;
+  updateHistoryButtons();
+  saveSettings();
+}
+
+function undo() {
+  if (state.cursor <= 0) return;
+  state.cursor--;
+  applySettings(state.history[state.cursor]);
+  updateHistoryButtons();
+  saveSettings();
+}
+
+function redo() {
+  if (state.cursor >= state.history.length - 1) return;
+  state.cursor++;
+  applySettings(state.history[state.cursor]);
+  updateHistoryButtons();
+  saveSettings();
+}
+
+/** Reset every parameter to its default (spec F6). An ordinary undoable step. */
+function reset() {
+  applySettings(DEFAULTS);
+  commit();
+}
+
+/** Reflects history depth on the buttons and the debug hooks. */
+function updateHistoryButtons() {
+  els.undo.disabled = state.cursor <= 0;
+  els.redo.disabled = state.cursor >= state.history.length - 1;
+  if (window.prepDebug) {
+    window.prepDebug.undoDepth = state.cursor;
+    window.prepDebug.redoDepth = state.history.length - 1 - state.cursor;
+  }
+}
+
+/** Seeds history with the current settings as the base step (survives loads). */
+function seedHistory() {
+  state.history = [captureSettings()];
+  state.cursor = 0;
+  updateHistoryButtons();
+}
+
+/** Persists the current settings as one small versioned object (F5/D7). Images
+ *  are never stored. Wrapped in try/catch: storage may be full or unavailable. */
+function saveSettings() {
+  try {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ version: SETTINGS_VERSION, ...captureSettings() }),
+    );
+  } catch {
+    /* private mode / quota / disabled: settings just won't persist (F5). */
+  }
+}
+
+/** Reads remembered settings (F5). Missing, corrupt, or old-version data falls
+ *  back to defaults without an error. Returns true if anything was applied. */
+function restoreSettings() {
+  let data;
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return false;
+    data = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (!data || data.version !== SETTINGS_VERSION) return false;
+  applySettings(sanitizeSettings(data));
+  return true;
+}
+
+/** Validates each field of stored settings, falling back to the default per
+ *  field, so partial or tampered data can never break the app (F5). */
+function sanitizeSettings(d) {
+  const clampInt = (v, min, max, dflt) =>
+    Number.isFinite(v) && v >= min && v <= max ? Math.round(v) : dflt;
+  const oneOf = (v, allowed, dflt) => (allowed.includes(v) ? v : dflt);
+  const bool = (v, dflt) => (typeof v === "boolean" ? v : dflt);
+  const g = d.grid ?? {};
+  const dg = DEFAULTS.grid;
+  return {
+    n: clampInt(d.n, 2, 10, DEFAULTS.n),
+    bucketMean: bool(d.bucketMean, DEFAULTS.bucketMean),
+    algo: oneOf(d.algo, ["equal", "quantile", "jenks"], DEFAULTS.algo),
+    blur: Number.isFinite(d.blur) && d.blur >= 0 && d.blur <= 3 ? d.blur : DEFAULTS.blur,
+    legendInExport: bool(d.legendInExport, DEFAULTS.legendInExport),
+    grid: {
+      mode: oneOf(g.mode, ["off", "square", "rowscols"], dg.mode),
+      axis: oneOf(g.axis, ["width", "height"], dg.axis),
+      k: clampInt(g.k, 2, 16, dg.k),
+      rows: clampInt(g.rows, 1, 12, dg.rows),
+      cols: clampInt(g.cols, 1, 12, dg.cols),
+      diagonals: bool(g.diagonals, dg.diagonals),
+      over: oneOf(g.over, ["study", "original"], dg.over),
+      line: oneOf(g.line, ["black", "white", "grey", "two"], dg.line),
+    },
+  };
+}
 
 /** Facts about the current photo and the last run, for the debug panel. */
 const stats = {
@@ -272,7 +470,9 @@ async function loadPhoto(file) {
     state.originalImageData = imageData;
     state.sourceFile = file;
     resetExportUI(); // a new photo invalidates any pending export
+    clearSnapshots(); // the previous photo's snapshots don't apply (D16)
     els.exportBtn.disabled = false;
+    els.pin.disabled = false;
     state.loaded = true;
     updateDockVisibility();
     render();
@@ -439,9 +639,23 @@ async function exportImage() {
     const g = state.grid;
     const overOriginal = g.mode !== "off" && g.over === "original";
 
+    // Optional legend band at the bottom (F2). Read the greys/counts of the
+    // current preview study before the export render (which doesn't change them).
+    let legendGreys = [];
+    let legendCounts = [];
+    if (state.legendInExport) {
+      try {
+        legendGreys = state.processor.greys();
+        legendCounts = state.processor.counts();
+      } catch (e) {
+        console.warn(`legend unavailable for export: ${e}`);
+      }
+    }
+    const bandH = legendGreys.length ? legendBandHeight(target.height) : 0;
+
     const canvas = document.createElement("canvas");
     canvas.width = target.width;
-    canvas.height = target.height;
+    canvas.height = target.height + bandH;
     const ctx = canvas.getContext("2d", { colorSpace: "srgb" });
     if (!ctx) throw new Error("couldn't get an export canvas");
 
@@ -464,6 +678,7 @@ async function exportImage() {
         ctx.putImageData(new ImageData(view, target.width, target.height), 0, 0);
       }
       drawGrid(ctx, target.width, target.height);
+      if (bandH) drawLegendBand(ctx, legendGreys, legendCounts, 0, target.height, target.width, bandH);
     });
 
     const name = `painting-prep-${g.mode === "off" ? "study" : "grid"}.png`;
@@ -520,10 +735,11 @@ function updateGridVisibility() {
   if (!on) els.gridNoteRow.hidden = true;
 }
 
-/** The dock (legend strip + compare bar, F2) appears once a photo is loaded. */
-function updateDockVisibility() {
-  els.dock.hidden = !state.loaded;
-  els.compareBar.hidden = !state.loaded;
+// --- Legend strip (F2) ---
+
+/** The on-screen legend band height in export pixels, when included (F2). */
+function legendBandHeight(targetH) {
+  return Math.max(48, Math.round(targetH * 0.06));
 }
 
 /**
@@ -563,17 +779,138 @@ function renderLegend() {
   els.legend.hidden = false;
 }
 
-// --- Compare view (F2/F6): source = original (snapshots added in a later step) ---
+/** Draws the legend as a band `h` px tall at the bottom of an export canvas
+ *  (F2, when the toggle is on). Mirrors the on-screen strip. */
+function drawLegendBand(ctx, greys, counts, x, y, w, h) {
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+  const cellW = w / greys.length;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.max(10, Math.round(h * 0.3))}px -apple-system, system-ui, sans-serif`;
+  for (let i = 0; i < greys.length; i++) {
+    const g = greys[i];
+    ctx.fillStyle = `rgb(${g},${g},${g})`;
+    ctx.fillRect(x + i * cellW, y, Math.ceil(cellW), h);
+    ctx.fillStyle = g < 110 ? "#fff" : "#000";
+    ctx.fillText(`${Math.round((counts[i] / total) * 100)}%`, x + (i + 0.5) * cellW, y + h / 2);
+  }
+}
+
+// --- Dock, snapshots, and compare (F6) ---
+
+/** The dock (legend + compare bar + snapshots) appears once a photo is loaded. */
+function updateDockVisibility() {
+  els.dock.hidden = !state.loaded;
+  els.compareBar.hidden = !state.loaded;
+}
+
+/** Max pinned snapshots (D16/§7): each is a preview-size ImageBitmap in JS. */
+const SNAP_MAX = 4;
+let nextSnapId = 0;
+
+/** Pin the current preview (study + any grid) as a snapshot (F6/D16). */
+async function pinSnapshot() {
+  if (!state.loaded) return;
+  if (state.snapshots.length >= SNAP_MAX) {
+    enterReplaceMode();
+    return;
+  }
+  try {
+    const bitmap = await createImageBitmap(els.preview);
+    state.snapshots.push({ id: ++nextSnapId, settings: captureSettings(), bitmap });
+  } catch (e) {
+    console.error(e);
+    showError(`Couldn't pin a snapshot: ${e.message ?? e}`);
+    return;
+  }
+  renderSnapshotStrip();
+  renderCompareSources();
+}
+
+function enterReplaceMode() {
+  state.pendingPin = true;
+  els.snapBannerText.textContent = "Snapshots full — tap one to replace.";
+  els.snapBanner.hidden = false;
+}
+
+function cancelReplaceMode() {
+  state.pendingPin = false;
+  els.snapBanner.hidden = true;
+}
+
+/** Replace snapshot `index` with the current preview (F6 max-4 flow). */
+async function replaceSnapshot(index) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(els.preview);
+  } catch (e) {
+    console.error(e);
+    showError(`Couldn't replace the snapshot: ${e.message ?? e}`);
+    cancelReplaceMode();
+    return;
+  }
+  state.snapshots[index].bitmap.close();
+  state.snapshots[index] = { id: ++nextSnapId, settings: captureSettings(), bitmap };
+  cancelReplaceMode();
+  renderSnapshotStrip();
+  renderCompareSources();
+}
+
+/** Rebuilds the thumbnail strip. A tap restores a snapshot's settings (an
+ *  undoable step); in replace mode a tap swaps that snapshot instead (F6). */
+function renderSnapshotStrip() {
+  els.snaps.replaceChildren(
+    ...state.snapshots.map((snap, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "snap";
+      btn.dataset.snapIndex = String(i);
+      btn.setAttribute("aria-label", `Snapshot ${i + 1}`);
+      const thumb = document.createElement("canvas");
+      const tw = 64;
+      thumb.width = tw;
+      thumb.height = Math.max(1, Math.round((snap.bitmap.height / snap.bitmap.width) * tw));
+      thumb.getContext("2d").drawImage(snap.bitmap, 0, 0, thumb.width, thumb.height);
+      btn.append(thumb);
+      btn.addEventListener("click", () => {
+        if (state.pendingPin) {
+          replaceSnapshot(i);
+        } else {
+          applySettings(snap.settings);
+          commit();
+        }
+      });
+      return btn;
+    }),
+  );
+  els.snaps.dataset.count = String(state.snapshots.length);
+  els.snaps.hidden = state.snapshots.length === 0;
+  if (window.prepDebug) window.prepDebug.snapshotCount = state.snapshots.length;
+}
+
+/** Releases every snapshot bitmap and clears the strip (new photo, D16). */
+function clearSnapshots() {
+  for (const snap of state.snapshots) snap.bitmap.close();
+  state.snapshots = [];
+  cancelReplaceMode();
+  if (state.compare.source.startsWith("snap:")) state.compare.source = "off";
+  renderSnapshotStrip();
+}
 
 function sizeCompareToPreview() {
   els.compare.width = els.preview.width;
   els.compare.height = els.preview.height;
 }
 
-/** Paints the chosen comparison (the original) into the compare ctx. */
+/** Paints the chosen comparison (original or a snapshot) into the compare ctx. */
 function drawCompareInto(ctx) {
-  if (state.compare.source === "original" && state.originalImageData) {
-    ctx.putImageData(state.originalImageData, 0, 0);
+  const src = state.compare.source;
+  if (src === "original") {
+    if (state.originalImageData) ctx.putImageData(state.originalImageData, 0, 0);
+  } else if (src.startsWith("snap:")) {
+    const id = Number(src.slice(5));
+    const snap = state.snapshots.find((s) => s.id === id);
+    if (snap) ctx.drawImage(snap.bitmap, 0, 0);
   }
 }
 
@@ -591,11 +928,16 @@ function refreshCompareVisibility() {
 /**
  * Redraws the compare layer and updates layout + button states. Called when the
  * source, mode, or the underlying photo changes — never on a settings edit, so
- * the comparison stays put while the live view updates underneath (F2/F6).
+ * the frozen comparison stays put while the live view updates underneath (F6).
  */
 function refreshCompare() {
   const area = els.previewArea;
-  area.dataset.compare = state.compare.source; // "off" | "original"
+  area.dataset.compare =
+    state.compare.source === "off"
+      ? "off"
+      : state.compare.source === "original"
+        ? "original"
+        : "snap";
   area.dataset.compareMode = state.compare.mode;
   area.classList.toggle(
     "side",
@@ -633,7 +975,7 @@ function setCompareMode(mode) {
   refreshCompare();
 }
 
-/** Rebuilds the compare source buttons: Off, Orig (snapshots added later). */
+/** Rebuilds the compare source buttons: Off, Orig, then one per snapshot (F6). */
 function renderCompareSources() {
   const add = (value, label) => {
     const b = document.createElement("button");
@@ -645,7 +987,9 @@ function renderCompareSources() {
     b.addEventListener("click", () => setCompareSource(value));
     return b;
   };
-  els.compareSource.replaceChildren(add("off", "Off"), add("original", "Orig"));
+  const buttons = [add("off", "Off"), add("original", "Orig")];
+  state.snapshots.forEach((snap, i) => buttons.push(add(`snap:${snap.id}`, `S${i + 1}`)));
+  els.compareSource.replaceChildren(...buttons);
 }
 
 /**
@@ -674,8 +1018,11 @@ function bindCompareGesture(el) {
       timer = null;
     }
     if (!active()) return;
-    if (held) state.compare.peeking = false;
-    else state.compare.flipped = !state.compare.flipped;
+    if (held) {
+      state.compare.peeking = false;
+    } else {
+      state.compare.flipped = !state.compare.flipped;
+    }
     refreshCompareVisibility();
   };
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) {
@@ -726,57 +1073,65 @@ function bindEvents() {
     els.settings.hidden = true;
   });
   // n changes the study → queueRender; grid counts are grid-only → queuePaint
-  // (spec §5 caching).
+  // (spec §5 caching). Every control below also commits one undo step (F6).
   bindStepper("n", 2, 10, () => state.n, (v) => (state.n = v), queueRender);
-  for (const radio of document.querySelectorAll('input[name="greys"]')) {
-    radio.addEventListener("change", () => {
-      state.bucketMean = radio.value === "mean" && radio.checked;
-      render();
-    });
-  }
+  bindRadio(
+    "greys",
+    () => (state.bucketMean ? "mean" : "even"),
+    (v) => (state.bucketMean = v === "mean"),
+    render,
+  );
   // Algorithm + blur change the study, so they re-posterize (not just paint).
-  for (const radio of document.querySelectorAll('input[name="algo"]')) {
-    radio.addEventListener("change", () => {
-      if (!radio.checked) return;
-      state.algo = radio.value;
-      render();
-    });
-  }
+  bindRadio("algo", () => state.algo, (v) => (state.algo = v), render);
   // Blur is a % of the short side, so even ~1% is a strong squint; fine 0.25%
   // steps with a low cap keep the useful low end reachable (max 3% ≈ heavy).
   bindStepper("blur", 0, 3, () => state.blur, (v) => (state.blur = v), queueRender, 0.25);
 
   // Grid controls (M3). All are grid-only changes, so they repaint without
-  // re-posterizing — except nothing here touches n/greys.
-  for (const radio of document.querySelectorAll('input[name="grid-mode"]')) {
-    radio.addEventListener("change", () => {
-      if (!radio.checked) return;
-      state.grid.mode = radio.value;
+  // re-posterizing — except grid mode, which also toggles its sub-rows.
+  bindRadio(
+    "grid-mode",
+    () => state.grid.mode,
+    (v) => (state.grid.mode = v),
+    () => {
       updateGridVisibility();
       paint();
-    });
-  }
-  bindRadio("grid-axis", (value) => {
-    state.grid.axis = value;
-  });
-  bindRadio("grid-diag", (value) => {
-    state.grid.diagonals = value === "on";
-  });
-  bindRadio("grid-over", (value) => {
-    state.grid.over = value;
-  });
-  bindRadio("grid-line", (value) => {
-    state.grid.line = value;
-  });
+    },
+  );
+  bindRadio("grid-axis", () => state.grid.axis, (v) => (state.grid.axis = v), paint);
+  bindRadio(
+    "grid-diag",
+    () => (state.grid.diagonals ? "on" : "off"),
+    (v) => (state.grid.diagonals = v === "on"),
+    paint,
+  );
+  bindRadio("grid-over", () => state.grid.over, (v) => (state.grid.over = v), paint);
+  bindRadio("grid-line", () => state.grid.line, (v) => (state.grid.line = v), paint);
   bindStepper("k", 2, 16, () => state.grid.k, (v) => (state.grid.k = v), queuePaint);
   bindStepper("rows", 1, 12, () => state.grid.rows, (v) => (state.grid.rows = v), queuePaint);
   bindStepper("cols", 1, 12, () => state.grid.cols, (v) => (state.grid.cols = v), queuePaint);
 
-  // Compare controls (F2): the view-mode buttons + the tap/hold gesture on the
-  // preview. Source buttons are built in renderCompareSources.
+  // Legend-in-export toggle (F2): a plain checkbox, persisted (F5), undoable.
+  syncers.push(() => {
+    els.legendExport.checked = state.legendInExport;
+  });
+  els.legendExport.addEventListener("change", () => {
+    state.legendInExport = els.legendExport.checked;
+    commit();
+  });
+
+  // Top-bar F6 controls.
+  els.undo.addEventListener("click", undo);
+  els.redo.addEventListener("click", redo);
+  els.reset.addEventListener("click", reset);
+  els.pin.addEventListener("click", pinSnapshot);
+
+  // Compare controls (F2/F6). Source buttons are built in renderCompareSources;
+  // the mode (flip/side) buttons are static.
   for (const b of els.compareMode.querySelectorAll("[data-mode]")) {
     b.addEventListener("click", () => setCompareMode(b.dataset.mode));
   }
+  els.snapBannerCancel.addEventListener("click", cancelReplaceMode);
   bindCompareGesture(els.preview);
 
   // Export is two taps (spec F4): Export renders + encodes, then Share saves.
@@ -786,13 +1141,23 @@ function bindEvents() {
   els.errorClose.addEventListener("click", clearError);
 }
 
-/** Wires a radio group: `apply` stores the picked value, then repaint. */
-function bindRadio(name, apply) {
-  for (const radio of document.querySelectorAll(`input[name="${name}"]`)) {
+/**
+ * Wires a segmented radio group. `get` returns the current value (for the DOM
+ * syncer used by undo/redo/reset/restore), `apply` stores the picked value,
+ * `after` recomputes (render or paint); each pick is one undo step (F6).
+ */
+function bindRadio(name, get, apply, after) {
+  const group = document.querySelectorAll(`input[name="${name}"]`);
+  syncers.push(() => {
+    const v = String(get());
+    for (const radio of group) radio.checked = radio.value === v;
+  });
+  for (const radio of group) {
     radio.addEventListener("change", () => {
       if (!radio.checked) return;
       apply(radio.value);
-      paint();
+      after();
+      commit();
     });
   }
 }
@@ -821,9 +1186,11 @@ function bindStepper(id, min, max, get, apply, after, stepBy = 1) {
     apply(v);
     sync();
     after();
+    commit(); // each finished tap is one undo step (F6)
   };
   dec.addEventListener("click", change(-stepBy));
   inc.addEventListener("click", change(stepBy));
+  syncers.push(sync); // lets undo/redo/reset/restore refresh this stepper
   sync();
 }
 
@@ -836,6 +1203,9 @@ function debugInfo() {
     export: size(stats.export),
     decodePath: stats.decodePath ?? "–",
     settings: `n = ${state.n}, greys = ${state.bucketMean ? "mean" : "even"}, algo = ${state.algo}, blur = ${state.blur}%, grid = ${state.grid.mode}`,
+    history: `${state.cursor + 1}/${state.history.length}`,
+    snapshots: `${state.snapshots.length}/${SNAP_MAX}`,
+    compare: `${state.compare.source} (${state.compare.mode})`,
     // Wasm memory only grows (spec §7), so this is the session's peak.
     wasmMemory: state.wasm ? `${(state.wasm.memory.buffer.byteLength / 2 ** 20).toFixed(1)} MB` : "–",
   };
@@ -887,6 +1257,8 @@ async function main() {
   setInfoProvider(debugInfo);
   bindLongPress(els.title);
   bindEvents(); // also syncs each stepper's output + disabled state
+  restoreSettings(); // remembered settings (F5); no-op if none/old/corrupt
+  seedHistory(); // base undo step reflects the restored (or default) settings
   registerServiceWorker();
   try {
     state.wasm = await init();

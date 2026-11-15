@@ -238,3 +238,87 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
   **Confirmed good at 0.25% on the device.** `bindStepper` gained an optional
   `stepBy` for the fractional step. Kept the stepper (not a slider or presets, per
   D25) for fine one-handed control.
+
+## D29 — M5 Phase B: legend strip, legend-in-export, compare view, remembered settings (2026-11-15)
+- **Scope.** The *refinements* half of M5 (the engine was Phase A, D28), all **web-only**
+  (no Rust/wasm changes): the legend strip + a legend-in-export toggle (F2), the compare
+  view (F2), and remembered settings (F5). Planned together with M6 because they share two
+  foundations (a settings object + an apply path, and the compare mechanism).
+- **Scope move — compare belongs with M6, not just Phase B.** F6's snapshot comparison is
+  explicitly "the same as comparing with the original," so the compare *control* is one
+  mechanism shared by F2 (compare original) and F6 (compare a snapshot). It is built once
+  here, parameterised by a **source** ("off" | "original" | "snap:&lt;id&gt;"), rather than
+  twice. (The old `CLAUDE.md` wording that filed "compare" solely under Phase B is updated.)
+- **Legend strip.** After each `render()`, `renderLegend()` reads the already-built wasm
+  `greys()`/`counts()` (unused by the web until now) and draws n cells dark→light with each
+  bucket's % of pixels; empty buckets show 0% (§6). It lives in a new **dock** row below the
+  preview and updates only on study changes (not grid-only `paint()`s).
+- **Legend-in-export** (default off, F2). A plain checkbox in the Settings overlay, part of
+  `captureSettings()` so it persists (F5) and is undoable (F6). When on, `exportImage()`
+  **extends the export canvas height** by a legend band (`legendBandHeight ≈ 6%`, min 48px)
+  and draws the band with `drawLegendBand`; when off, the export is byte-identical to M4
+  (the WebKit byte-exact export test still passes). *Band placement/size is a first cut —
+  confirm on device.*
+- **Compare view — a separate overlay canvas, never drawing into `#preview`.** A second
+  `#compare` canvas in the preview area shows the comparison image; `render()`/`paint()`
+  keep touching only `#preview`, so the pipeline (§5 caching, D15) is untouched and flips
+  are instant. **Flip** (tap toggles) and **hold-to-peek** share one `bindCompareGesture`
+  modelled on `bindLongPress` (debug.js): a 180 ms press = hold, a quick release = tap;
+  `#compare` has `pointer-events: none` so the gesture lands on `#preview`. **Side-by-side**
+  is a `.side` class laying the two canvases at ≤50% each. The comparison is **frozen**:
+  editing settings updates the live view while the compare image stays put (that is the
+  point). Redrawn only when the source, mode, or the photo changes — never on a settings
+  edit.
+- **Remembered settings (F5/D7).** One versioned object (`painting-prep:settings`, v1) in
+  `localStorage`, written on every `commit()` and read once on startup, both in try/catch.
+  `sanitizeSettings` validates each field and falls back to the per-field default, so
+  missing/old-version/tampered data can never break startup (covered by a test). Restore
+  runs **before** the undo-history base is seeded, so undo can't walk below the restored
+  state. **Images are never persisted** (D7/D14). Export size cap is in F5's list but has no
+  UI control yet (it's the `EXPORT_MAX_PX` constant), so it isn't persisted — revisit if/when
+  a control is added.
+
+## D30 — M6: undo/redo, reset, snapshots (F6) (2026-11-15)
+- **Scope.** The last spec milestone (F6), web-only. Built on D29's shared foundation.
+- **One settings object, one apply path.** `captureSettings()` returns a JSON-safe clone of
+  just the undoable/persisted fields (n, greys, algo, blur, legend-in-export, grid); the
+  same object is both an undo step and the F5 payload (D29). `applySettings(s)` writes it
+  back into `state` and the DOM via a **control registry** (`syncers`): `bindStepper` and a
+  unified `bindRadio(name, get, apply, after)` each register a DOM-sync closure, so
+  undo/redo/reset/restore refresh every control without firing change handlers. A
+  `state.applying` guard makes the push/persist path inert during an apply (belt-and-braces,
+  since setting `.checked`/`.textContent` doesn't fire `change`).
+- **Undo history — array + cursor of settings snapshots.** `commit()` is the single push
+  site, called by every control handler after it mutates state and recomputes: it drops the
+  redo tail, dedups no-ops (`JSON.stringify`), pushes, caps at **50** (`shift()`), and
+  persists. Undo/redo move the cursor and `applySettings`. History lives in memory, **is not
+  touched by loading a photo** (survives it), and is **never persisted** (spec non-goal).
+  `applySettings` always does a full `render()` — simplest and always correct; pixel-identity
+  of 3→4→undo comes free from the non-destructive recompute (D15), verified byte-for-byte in
+  the smoke test.
+- **Granularity — each finished tap is one step** (user choice, 2026-11-15). Matches the
+  spec wording; simplest (`commit()` once per tap). A dormant `COALESCE_MS = 0` knob is left
+  in `commit` so consecutive same-control taps could later be merged without a redesign.
+- **Reset** = `applySettings(DEFAULTS)` + `commit()`, so it's an ordinary undoable step.
+  `DEFAULTS` is captured once at module load from the DOM defaults, before any F5 restore.
+- **Snapshots (D16).** `pinSnapshot()` stores `{ id, settings, bitmap }` where `bitmap =
+  createImageBitmap(#preview)` (captures exactly what's on screen, grid included; ~12 MB,
+  **in JS, not wasm**, §7). Max **4**; a 5th pin shows a "tap one to replace" banner
+  (`confirm()` can't say *which*), and a tap in that mode `close()`s the old bitmap and
+  swaps it. Tapping a thumbnail otherwise **restores** its settings (an undoable step).
+  `clearSnapshots()` (in `loadPhoto`) `close()`s every bitmap and resets a snapshot-based
+  compare source — snapshots are **cleared on new photo, never persisted**.
+- **Toolbar.** Undo/redo/reset/pin are compact icon buttons **inside the existing
+  `.top-bar`** (the `top` grid area) — no new body grid rows, so no layout shift (the
+  2026-10-04 trap). The dock (legend + compare bar + snapshots) is **one new named grid row**
+  (`dock`) with the `#dock[hidden]{display:none}` guard so the empty dock can't shift the
+  preview. `#pin` is disabled until a photo loads; undo/redo reflect the cursor.
+- **Test hooks.** `#undo #redo #reset #pin`; `#snaps[data-count]` + `.snap[data-snap-index]`;
+  `#legend[data-count]`; `#preview-area[data-compare]` / `[data-compare-mode]`; and
+  `prepDebug.undoDepth`/`redoDepth`/`snapshotCount`. The study path and its
+  `#preview[data-rendered]="n,greys,algo,blur"` hook are unchanged, and the default
+  `5,even,equal,0` stays byte-identical (all pre-existing tests still pass).
+- **Verified.** Full check green (fmt/clippy/114+14+5 tests/wasm check); WebKit smoke **14/14**
+  (6 originals unchanged + 8 new, incl. the pixel-identical 3→4→undo). **On-device checks
+  pending** (see `handoff.md`): 4 snapshots flip instantly; hold-to-peek has no iOS callout;
+  settings survive a restart; top bar fits one-handed; legend-in-export placement.

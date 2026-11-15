@@ -10,6 +10,56 @@ GitHub; `gh` isn't installed, so CI is checked by hand in the Actions tab._
 
 ---
 
+## Session of 2026-11-15 — M5 Phase B + M6: legend, compare, settings, undo, snapshots (CODE COMPLETE, on-device pending)
+
+Decided with the user to follow the project's order (Option 2): do **M5 Phase B**
+first, then **M6**, rather than M6 alone — because F6's snapshot comparison is "the
+same as comparing with the original," so the compare mechanism and the settings
+object are shared foundations best built once. Confirmed none of this touches the
+v1 non-goals (undo/snapshots stay in-memory; no image is persisted). Undo
+granularity: **each stepper tap is one step** (user choice). All **web-only** — no
+Rust/wasm changes.
+
+### What shipped (all in `web/`; decisions D29 Phase B, D30 M6)
+- **Shared foundation:** `captureSettings()` (the one settings object), `applySettings()`
+  + a `syncers` control registry (refactored `bindStepper`; unified
+  `bindRadio(name,get,apply,after)`), and `commit()` as the single undo-push + persist
+  site, guarded by `state.applying`.
+- **Legend strip (F2):** `renderLegend()` draws n greys + % from the existing wasm
+  `greys()`/`counts()`, in a new **dock** row below the preview.
+- **Legend-in-export (F2):** checkbox (default off, persisted); export extends the
+  canvas by a legend band (`drawLegendBand`). Off ⇒ export byte-identical to M4.
+- **Compare view (F2/F6):** separate `#compare` overlay canvas; source = off/original/
+  snapshot; flip (tap) + hold-to-peek (`bindCompareGesture`, like `bindLongPress`) +
+  side-by-side (`.side`). Never draws into `#preview`, so the pipeline is untouched.
+- **Remembered settings (F5):** versioned `localStorage` object, `sanitizeSettings`
+  falls back per field; restore runs before the history base is seeded. No images.
+- **Undo/redo (F6):** settings-object history, cap 50, survives photo load, not
+  persisted; `#undo`/`#redo` in the top bar.
+- **Reset (F6):** `applySettings(DEFAULTS)` + `commit()` — an undoable step.
+- **Snapshots (F6/D16):** pin up to 4 (`createImageBitmap(#preview)`, JS-held),
+  thumbnails, tap-to-restore, replace-by-tap at the cap, cleared on new photo.
+- **Top bar** gained `↶ ↷ ⟲ 📌` as icon buttons (no new grid rows, no layout shift).
+
+### Verified
+- Full Rust check green (fmt, clippy -D warnings, 114 + 14 + 5 tests, wasm check) —
+  no Rust changed, run for CI parity.
+- **WebKit smoke 14/14**: the 6 originals unchanged (default study/export still
+  byte-match the CLI) + 8 new (legend tracks n; compare is display-only; settings
+  round-trip + corrupt-fallback; **3→4→undo is pixel-identical**; reset is undoable;
+  snapshot pin/compare/cap + replace; snapshots cleared on new photo).
+
+### Not done yet — next session
+- **On-device sign-off** (the M6 "Done when" + Phase B feel): see the CLAUDE.md
+  "Currently next" checklist. Test in a Safari **Private tab**.
+- Nothing is committed yet (awaiting the user's go-ahead). Suggested commits, one per
+  feature: legend, legend-in-export, compare, remembered-settings, undo/redo, reset,
+  snapshots (prefix `M5.x:` / `M6.x:`).
+- Still open from before: large-photo/canvas-limit check; observe the update banner on
+  device; `BACKLOG.md` ideas.
+
+---
+
 ## Session of 2026-11-15 — M5 Phase A: algorithms + blur (COMPLETE)
 
 Milestones done: **M0–M4**, and **M5 Phase A** (D28). M5 was split: **Phase A**
