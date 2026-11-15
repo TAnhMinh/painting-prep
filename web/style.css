@@ -36,8 +36,8 @@ body {
   /* The photo is full-screen (D25); controls live in the Settings overlay, which
      is fixed-position and outside this grid. Named areas: the hidden error banner
      takes no row, so implicit placement would shift the preview up a row. */
-  grid-template-areas: "top" "banner" "update" "preview";
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-areas: "top" "banner" "update" "preview" "dock";
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   height: 100vh;
   height: 100dvh;
   padding:
@@ -194,6 +194,28 @@ body {
 .segmented label { padding: 0.55rem 1.1rem; cursor: pointer; }
 .segmented input:checked + label { background: var(--accent); color: var(--accent-fg); }
 .segmented input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -4px; }
+
+/* --- Dock below the preview --- */
+.dock {
+  grid-area: dock;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--line);
+}
+.dock[hidden] { display: none; }
+
+/* Legend strip (F2): the n output greys dark→light, each with its bucket %. */
+.legend { display: flex; height: 2.5rem; border-radius: 0.4rem; overflow: hidden; }
+.legend[hidden] { display: none; }
+.legend-cell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+.legend-pct { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 
 /* Hidden from view but still tappable via its <label> (display: none can
    stop iOS from opening the picker). */

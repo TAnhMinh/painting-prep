@@ -44,6 +44,9 @@ const els = {
   exportDownload: $("export-download"),
   exportNoteRow: $("export-note-row"),
   exportNote: $("export-note"),
+  // Dock below the preview: the legend strip (F2).
+  dock: $("dock"),
+  legend: $("legend"),
 };
 
 const state = {
@@ -263,6 +266,7 @@ async function loadPhoto(file) {
     resetExportUI(); // a new photo invalidates any pending export
     els.exportBtn.disabled = false;
     state.loaded = true;
+    updateDockVisibility();
     render();
     els.preview.hidden = false;
     els.chooseBig.hidden = true;
@@ -297,6 +301,7 @@ function render() {
     showError(`Couldn't render the study: ${e.message ?? e}`);
     return;
   }
+  renderLegend();
   paint();
 }
 
@@ -503,6 +508,48 @@ function updateGridVisibility() {
   els.gridOptsRow.hidden = !on;
   els.gridLineRow.hidden = !on;
   if (!on) els.gridNoteRow.hidden = true;
+}
+
+/** The dock (legend strip, F2) appears once a photo is loaded. */
+function updateDockVisibility() {
+  els.dock.hidden = !state.loaded;
+}
+
+/**
+ * Draws the legend strip (F2): the n output greys dark→light, each labelled with
+ * the percentage of pixels in its bucket. Reads the last render's greys/counts
+ * (valid after `processor.render`); empty buckets show 0% (§6).
+ */
+function renderLegend() {
+  if (!state.loaded) {
+    els.legend.hidden = true;
+    return;
+  }
+  let greys, counts;
+  try {
+    greys = state.processor.greys();
+    counts = state.processor.counts();
+  } catch (e) {
+    console.warn(`legend unavailable: ${e}`);
+    els.legend.hidden = true;
+    return;
+  }
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+  els.legend.replaceChildren(
+    ...Array.from(greys, (g, i) => {
+      const cell = document.createElement("div");
+      cell.className = "legend-cell";
+      cell.style.background = `rgb(${g},${g},${g})`;
+      const pct = document.createElement("span");
+      pct.className = "legend-pct";
+      pct.style.color = g < 110 ? "#fff" : "#000"; // readable on its own grey
+      pct.textContent = `${Math.round((counts[i] / total) * 100)}%`;
+      cell.append(pct);
+      return cell;
+    }),
+  );
+  els.legend.dataset.count = String(greys.length);
+  els.legend.hidden = false;
 }
 
 function timedSync(label, fn) {

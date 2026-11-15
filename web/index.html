@@ -42,6 +42,12 @@
     <canvas id="preview" hidden></canvas>
   </main>
 
+  <!-- Dock below the preview: the legend strip (F2). One grid row with a named
+       area so the empty dock can't shift the preview. -->
+  <section id="dock" class="dock" hidden>
+    <div id="legend" class="legend" data-count="0" hidden></div>
+  </section>
+
   <!-- Full-screen Settings sheet (D25): the photo stays full-screen; this opens
        over it, and closes to reveal the photo with the choices applied. -->
   <section id="settings" class="overlay" aria-label="Settings" hidden>

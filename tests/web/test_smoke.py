@@ -262,5 +262,22 @@ class WebKitSmokeTest(unittest.TestCase):
         self.assertEqual(self.page_errors, [])
 
 
+    def test_legend_strip_shows_and_tracks_n(self):
+        self.load_fixture()
+        # The legend appears after the first render, with one cell per bucket.
+        self.page.wait_for_selector("#legend:not([hidden])")
+        self.assertEqual(self.page.get_attribute("#legend", "data-count"), "5")
+        self.assertEqual(
+            self.page.eval_on_selector_all("#legend .legend-cell", "els => els.length"), 5
+        )
+        # Changing n re-renders and the legend follows.
+        self.set_study(3, "even")
+        self.page.wait_for_function(
+            "document.getElementById('legend').dataset.count === '3'"
+        )
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+
 if __name__ == "__main__":
     sys.exit(unittest.main(verbosity=2))
