@@ -170,6 +170,10 @@ body {
   cursor: pointer;
 }
 .button.big { min-height: 3.5rem; padding: 0 2rem; font-size: 1.1rem; }
+/* `.button { display: inline-flex }` beats the UA `[hidden]` rule, so a hidden
+   button (Share/Save before export) needs this explicit rule (CLAUDE.md). */
+.button[hidden] { display: none; }
+.button:disabled { opacity: 0.5; cursor: default; }
 
 /* Segmented control: radio buttons styled as one bar. */
 .segmented { display: inline-flex; border: 1px solid var(--accent); border-radius: 0.6rem; overflow: hidden; }

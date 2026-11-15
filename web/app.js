@@ -7,6 +7,9 @@ import init, { Processor, gridLines } from "./pkg/prep_wasm.js";
 
 /** Preview working size: long side in px (spec §7). */
 const PREVIEW_LONG_SIDE = 2048;
+/** Export size cap: total pixels (spec §7, default 12 MP). Capped by area, not
+ *  long side, so any aspect ratio stays under the canvas/memory limit. */
+const EXPORT_MAX_PX = 12_000_000;
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -32,6 +35,12 @@ const els = {
   gridOptsRow: $("grid-opts-row"),
   gridLineRow: $("grid-line-row"),
   gridNoteRow: $("grid-note-row"),
+  // Export controls (M4).
+  exportBtn: $("export-btn"),
+  shareBtn: $("share-btn"),
+  exportDownload: $("export-download"),
+  exportNoteRow: $("export-note-row"),
+  exportNote: $("export-note"),
 };
 
 const state = {
@@ -45,6 +54,12 @@ const state = {
   // The composited-over-white preview pixels, kept so the grid can be drawn
   // over the original photo (not just the study). Replaced on each load.
   originalImageData: null,
+  // The picked File, kept so export can re-decode at export resolution (the
+  // preview pixels above are only ~2048 px). Replaced on each successful load.
+  sourceFile: null,
+  // The encoded export image, produced by the Export step, shared by the Share
+  // step (two taps, spec F4). { file, url }.
+  exportResult: null,
   grid: {
     mode: "off", // off | square | rowscols
     axis: "width", // width | height (square mode)
@@ -62,6 +77,7 @@ const stats = {
   source: null, // { width, height }
   working: null, // { width, height }
   decodePath: null,
+  export: null, // { width, height } of the last successful export (canvas-limit probe, §7)
   timings: {}, // step → ms
 };
 
@@ -93,11 +109,22 @@ function workingSize(w, h, limit) {
   };
 }
 
+/** Export size for a `w × h` source: at most `EXPORT_MAX_PX` total pixels,
+ *  never upscaled (spec §7). Capped by area so any aspect ratio stays safe. */
+function exportSize(w, h) {
+  const scale = Math.min(1, Math.sqrt(EXPORT_MAX_PX / (w * h)));
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+}
+
 /**
- * Decodes `file` straight to the working size and returns its sRGB pixels
- * (spec F1). Never draws or decodes the full-resolution photo on purpose.
+ * Decodes `file` straight to the size `computeTarget(source)` returns, and gives
+ * back its sRGB pixels (spec F1). Never draws or decodes the full-resolution
+ * photo on purpose. Used for both the preview and the export, at their own sizes.
  */
-async function decodeToWorkingSize(file) {
+async function decodeToSize(file, computeTarget) {
   const url = URL.createObjectURL(file);
   const img = new Image();
   try {
@@ -106,7 +133,7 @@ async function decodeToWorkingSize(file) {
     // 260 MB for a 64 MP photo, and iOS then runs out of memory (D23).
     await timed("header", () => loadImage(img, url));
     const source = { width: img.naturalWidth, height: img.naturalHeight };
-    const target = workingSize(source.width, source.height, PREVIEW_LONG_SIDE);
+    const target = computeTarget(source);
     const tooBig = () =>
       new Error(
         `not enough memory for a ${source.width} × ${source.height} photo. ` +
@@ -203,7 +230,9 @@ async function loadPhoto(file) {
   const previousTimings = stats.timings;
   stats.timings = {};
   try {
-    const { imageData, source, target, decodePath } = await decodeToWorkingSize(file);
+    const { imageData, source, target, decodePath } = await decodeToSize(file, (s) =>
+      workingSize(s.width, s.height, PREVIEW_LONG_SIDE),
+    );
     state.loaded = false;
     try {
       await timed("load", () =>
@@ -220,8 +249,12 @@ async function loadPhoto(file) {
     Object.assign(stats, { source, working: target, decodePath });
     els.preview.width = target.width;
     els.preview.height = target.height;
-    // Keep the original pixels for "grid over original" (already over white).
+    // Keep the original pixels for "grid over original" (already over white),
+    // and the File so export can re-decode at export resolution.
     state.originalImageData = imageData;
+    state.sourceFile = file;
+    resetExportUI(); // a new photo invalidates any pending export
+    els.exportBtn.disabled = false;
     state.loaded = true;
     render();
     els.preview.hidden = false;
@@ -279,7 +312,11 @@ function paint() {
         ctx.putImageData(new ImageData(view, p.width(), p.height()), 0, 0);
       }
     });
-    timedSync("grid", () => drawGrid(ctx));
+    timedSync("grid", () => drawGrid(ctx, p.width(), p.height()));
+    // Flag a partial last cell in Square mode (open question 2 → D24).
+    if (state.grid.mode !== "off") {
+      els.gridNoteRow.hidden = partialRemainder(p.width(), p.height(), state.grid) <= 0;
+    }
     // Signals the finished paint to the WebKit smoke test.
     els.preview.dataset.rendered = `${state.n},${state.bucketMean ? "mean" : "even"}`;
   } catch (e) {
@@ -288,12 +325,11 @@ function paint() {
   }
 }
 
-/** Draws the grid overlay for the current settings (no-op when grid is off). */
-function drawGrid(ctx) {
+/** Draws the grid overlay at `w × h` (the target canvas's size, so the same
+ *  image-relative geometry scales to preview or export, D9). No-op when off. */
+function drawGrid(ctx, w, h) {
   const g = state.grid;
   if (g.mode === "off") return;
-  const w = state.processor.width();
-  const h = state.processor.height();
   const coords = gridLines(w, h, g.mode, g.axis, g.k, g.rows, g.cols, g.diagonals);
   const path = new Path2D();
   for (let i = 0; i + 3 < coords.length; i += 4) {
@@ -302,8 +338,6 @@ function drawGrid(ctx) {
   }
   // Line width ≈ 0.15% of the short side, at least 1 px (spec F3).
   strokeGrid(ctx, path, Math.max(1, 0.0015 * Math.min(w, h)), g.line);
-  // Flag a partial last cell in Square mode (open question 2 → D24).
-  els.gridNoteRow.hidden = partialRemainder(w, h, g) <= 0;
 }
 
 /** Strokes `path`, with two-tone = a dark outline under a light core so the
@@ -334,6 +368,119 @@ function partialRemainder(w, h, g) {
   const full = Math.floor(otherLen / cell + 1e-4);
   const rem = otherLen - cell * full;
   return rem > 0.5 ? rem : 0;
+}
+
+/** Clears any pending export: hides Share/Save and revokes the blob URL. */
+function resetExportUI() {
+  if (state.exportResult) {
+    URL.revokeObjectURL(state.exportResult.url);
+    state.exportResult = null;
+  }
+  els.shareBtn.hidden = true;
+  els.exportDownload.hidden = true;
+  els.exportNoteRow.hidden = true;
+  els.exportNote.textContent = "";
+}
+
+/** Encodes `canvas` to a PNG `File`. PNG is lossless and a value study is a few
+ *  flat greys, so it stays small; a grid-over-original photo is larger. */
+function canvasToFile(canvas, name) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(new File([blob], name, { type: blob.type }));
+      else reject(new Error("couldn't encode the image"));
+    }, "image/png");
+  });
+}
+
+/**
+ * Export step 1 (spec F4): render the current view (study and/or grid) at export
+ * resolution and encode it to a `File`. Posterize reuses the preview's
+ * thresholds via `renderExport` (D11); the grid geometry scales to export size
+ * (D9). Step 2 (Share) then appears and runs in its own tap.
+ */
+async function exportImage() {
+  if (!state.loaded || !state.sourceFile) return;
+  resetExportUI();
+  els.exportBtn.disabled = true;
+  document.body.dataset.busy = "true";
+  els.exportNoteRow.hidden = false;
+  els.exportNote.textContent = "Rendering…";
+  try {
+    const { imageData, target, decodePath } = await timed("export-decode", () =>
+      decodeToSize(state.sourceFile, (s) => exportSize(s.width, s.height)),
+    );
+    stats.export = target; // canvas-limit probe (§7): this size decoded opaque
+    const g = state.grid;
+    const overOriginal = g.mode !== "off" && g.over === "original";
+
+    const canvas = document.createElement("canvas");
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const ctx = canvas.getContext("2d", { colorSpace: "srgb" });
+    if (!ctx) throw new Error("couldn't get an export canvas");
+
+    timedSync("export-render", () => {
+      if (overOriginal) {
+        ctx.putImageData(imageData, 0, 0);
+      } else {
+        state.processor.renderExport(
+          new Uint8Array(imageData.data.buffer),
+          target.width,
+          target.height,
+          state.n,
+          state.bucketMean,
+        );
+        const p = state.processor;
+        // View made after renderExport's allocations (spec §7).
+        const view = new Uint8ClampedArray(state.wasm.memory.buffer, p.export_ptr(), p.export_len());
+        ctx.putImageData(new ImageData(view, target.width, target.height), 0, 0);
+      }
+      drawGrid(ctx, target.width, target.height);
+    });
+
+    const name = `painting-prep-${g.mode === "off" ? "study" : "grid"}.png`;
+    const file = await timed("export-encode", () => canvasToFile(canvas, name));
+    canvas.width = canvas.height = 0; // release the backing store
+    const url = URL.createObjectURL(file);
+    state.exportResult = { file, url };
+
+    // Step 2: Share (to Photos) when supported; a Save link always (saves to
+    // Files on iOS — the fallback when Web Share is absent, spec F4).
+    els.exportDownload.href = url;
+    els.exportDownload.download = name;
+    els.exportDownload.hidden = false;
+    const canShare = navigator.canShare?.({ files: [file] }) ?? false;
+    els.shareBtn.hidden = !canShare;
+    const size = `${target.width} × ${target.height}`;
+    els.exportNote.textContent = canShare
+      ? `Ready (${size}). Tap Share → Save Image.`
+      : `Ready (${size}). Tap Save (saving to Photos needs the installed HTTPS app).`;
+    console.info(`exported ${size} via ${decodePath}`, stats.timings);
+  } catch (e) {
+    console.error(e);
+    resetExportUI();
+    showError(`Couldn't export: ${e.message ?? e}`);
+  } finally {
+    els.exportBtn.disabled = false;
+    delete document.body.dataset.busy;
+  }
+}
+
+/** Export step 2 (spec F4): share the encoded File through the iOS share sheet,
+ *  in its own tap so Web Share isn't rejected after the slow render. */
+async function shareExport() {
+  const res = state.exportResult;
+  if (!res) return;
+  if (!(navigator.canShare?.({ files: [res.file] }) ?? false)) {
+    showError("Sharing isn't available here; use Save instead.");
+    return;
+  }
+  try {
+    await navigator.share({ files: [res.file], title: "Painting Prep" });
+  } catch (e) {
+    if (e.name !== "AbortError") showError(`Couldn't share: ${e.message ?? e}`);
+  }
 }
 
 /** Shows only the grid sub-rows that apply to the current mode. */
@@ -423,6 +570,10 @@ function bindEvents() {
   bindStepper("rows", 1, 12, () => state.grid.rows, (v) => (state.grid.rows = v), queuePaint);
   bindStepper("cols", 1, 12, () => state.grid.cols, (v) => (state.grid.cols = v), queuePaint);
 
+  // Export is two taps (spec F4): Export renders + encodes, then Share saves.
+  els.exportBtn.addEventListener("click", exportImage);
+  els.shareBtn.addEventListener("click", shareExport);
+
   els.errorClose.addEventListener("click", clearError);
 }
 
@@ -471,6 +622,7 @@ function debugInfo() {
   const rows = {
     source: size(stats.source),
     working: size(stats.working),
+    export: size(stats.export),
     decodePath: stats.decodePath ?? "–",
     settings: `n = ${state.n}, greys = ${state.bucketMean ? "mean" : "even"}, grid = ${state.grid.mode}`,
     // Wasm memory only grows (spec §7), so this is the session's peak.

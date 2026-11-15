@@ -130,6 +130,18 @@
         <span class="name">cell</span>
         <span id="grid-note" class="status">partial last cell drawn at the far edge</span>
       </div>
+      <!-- Export is two steps (spec F4): Export renders + encodes, then Share
+           (or Save fallback) appears and runs in its own tap. -->
+      <div class="row">
+        <span class="name">export</span>
+        <button id="export-btn" type="button" class="button" disabled>Export</button>
+        <button id="share-btn" type="button" class="button" hidden>Share</button>
+        <a id="export-download" class="button" hidden download>Save</a>
+      </div>
+      <div id="export-note-row" class="row" hidden>
+        <span class="name"></span>
+        <span id="export-note" class="status"></span>
+      </div>
     </div>
   </section>
 </body>

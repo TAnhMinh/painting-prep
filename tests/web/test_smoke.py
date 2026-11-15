@@ -50,6 +50,33 @@ COMPARE_JS = """async (b64) => {
 }"""
 
 
+# Compares the encoded export PNG (fetched from the Save link's blob URL) with
+# the CLI study. The fixture is below the export cap, so export size == preview
+# size and the exported study must byte-match the CLI exactly.
+EXPORT_COMPARE_JS = """async (b64) => {
+  const want = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const wantBmp = await createImageBitmap(new Blob([want], { type: "image/png" }));
+  const href = document.getElementById("export-download").href;
+  const gotBmp = await createImageBitmap(await (await fetch(href)).blob());
+  if (gotBmp.width !== wantBmp.width || gotBmp.height !== wantBmp.height) {
+    return `size ${gotBmp.width} × ${gotBmp.height}, expected ${wantBmp.width} × ${wantBmp.height}`;
+  }
+  const toData = (bmp) => {
+    const c = document.createElement("canvas");
+    c.width = bmp.width;
+    c.height = bmp.height;
+    const x = c.getContext("2d", { colorSpace: "srgb" });
+    x.drawImage(bmp, 0, 0);
+    return x.getImageData(0, 0, c.width, c.height, { colorSpace: "srgb" }).data;
+  };
+  const a = toData(wantBmp);
+  const b = toData(gotBmp);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
+  return diff;
+}"""
+
+
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -166,6 +193,19 @@ class WebKitSmokeTest(unittest.TestCase):
         self.page.click("label[for=grid-off]")
         self.assertEqual(self.preview_signature(), base)
 
+        self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
+        self.assertEqual(self.page_errors, [])
+
+    def test_export_study_matches_cli(self):
+        self.load_fixture()
+        self.set_study(5, "even")  # leaves the Settings overlay open
+        self.page.click("#export-btn")
+        # Step 1 done: the Save link appears and the busy flag clears.
+        self.page.wait_for_function(
+            "!document.getElementById('export-download').hidden && !document.body.dataset.busy"
+        )
+        b64 = base64.b64encode(self.expected[(5, "even")]).decode()
+        self.assertEqual(self.page.evaluate(EXPORT_COMPARE_JS, b64), 0)
         self.assertEqual(self.page.evaluate("prepDebug.errorCount"), 0)
         self.assertEqual(self.page_errors, [])
 
