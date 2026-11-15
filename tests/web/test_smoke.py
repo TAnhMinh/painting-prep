@@ -210,11 +210,11 @@ class WebKitSmokeTest(unittest.TestCase):
         )
         self.assertNotEqual(self.preview_signature(), base)
 
-        # Blur (the squint) visibly changes the preview too.
+        # Blur (the squint) visibly changes the preview too; one tap = 0.25%.
         blurred_base = self.preview_signature()
         self.page.click("#blur-inc")
         self.page.wait_for_function(
-            "document.getElementById('preview').dataset.rendered === '5,even,jenks,1'"
+            "document.getElementById('preview').dataset.rendered === '5,even,jenks,0.25'"
         )
         self.assertNotEqual(self.preview_signature(), blurred_base)
 

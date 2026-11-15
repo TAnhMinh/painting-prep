@@ -563,7 +563,9 @@ function bindEvents() {
       render();
     });
   }
-  bindStepper("blur", 0, 10, () => state.blur, (v) => (state.blur = v), queueRender);
+  // Blur is a % of the short side, so even ~1% is a strong squint; fine 0.25%
+  // steps with a low cap keep the useful low end reachable (max 3% ≈ heavy).
+  bindStepper("blur", 0, 3, () => state.blur, (v) => (state.blur = v), queueRender, 0.25);
 
   // Grid controls (M3). All are grid-only changes, so they repaint without
   // re-posterizing — except nothing here touches n/greys.
@@ -611,11 +613,13 @@ function bindRadio(name, apply) {
 
 /**
  * Wires a − / + number stepper (`<id>-dec`, `<id>-value`, `<id>-inc`). Each tap
- * clamps the value ±1 to `[min, max]`, stores it via `apply`, updates the output,
- * disables a button at its limit, then runs `after` (render or paint). Replaces
- * the sliders, which were too small to hit on the phone (D25).
+ * clamps the value ±`stepBy` (default 1) to `[min, max]`, stores it via `apply`,
+ * updates the output, disables a button at its limit, then runs `after` (render
+ * or paint). Replaces the sliders, which were too small to hit on the phone
+ * (D25). `stepBy` can be fractional for a fine control like blur (M5); use a
+ * power-of-two fraction (e.g. 0.25) so the displayed value stays exact.
  */
-function bindStepper(id, min, max, get, apply, after) {
+function bindStepper(id, min, max, get, apply, after, stepBy = 1) {
   const dec = $(`${id}-dec`);
   const inc = $(`${id}-inc`);
   const out = $(`${id}-value`);
@@ -625,15 +629,15 @@ function bindStepper(id, min, max, get, apply, after) {
     dec.disabled = v <= min;
     inc.disabled = v >= max;
   };
-  const step = (delta) => () => {
+  const change = (delta) => () => {
     const v = Math.min(max, Math.max(min, get() + delta));
     if (v === get()) return;
     apply(v);
     sync();
     after();
   };
-  dec.addEventListener("click", step(-1));
-  inc.addEventListener("click", step(1));
+  dec.addEventListener("click", change(-stepBy));
+  inc.addEventListener("click", change(stepBy));
   sync();
 }
 
