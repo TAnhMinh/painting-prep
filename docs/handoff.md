@@ -10,11 +10,21 @@ GitHub; `gh` isn't installed, so CI is checked by hand in the Actions tab._
 
 ---
 
-## Session of 2026-11-15 — M3.5 UI rework + M4 export Step 1 (export + deploy)
+## Session of 2026-11-15 — M3.5 UI rework + M4 export (COMPLETE)
 
-Milestones done: **M0, M1, M2, M3**, **M3.5** (pre-M4 UI refinement), and **M4
-Step 1** (export + GitHub Pages deploy). Next: **M4 Step 2** (manifest + service
-worker). The app is live at `https://tanhminh.github.io/painting-prep/`.
+Milestones done: **M0, M1, M2, M3**, **M3.5** (pre-M4 UI refinement), and **M4**
+(export + GitHub Pages deploy + PWA install/offline). **M0–M4 all done.** Next:
+**M5** (algorithms, blur, compare, legend, remembered settings). The app is live
+and installable at `https://tanhminh.github.io/painting-prep/`.
+
+### M4 Step 2 — PWA manifest + service worker (D27), pushed
+- **Manifest + generated icon** (`web/manifest.webmanifest`, `web/icons/`, apple
+  meta tags) → "Add to Home Screen" gives a full-screen app with an icon.
+- **Service worker** (`web/sw.js.tmpl` → git-ignored `web/sw.js`, SHA-stamped by
+  `build-web.sh`): precache/offline, versioned cache, **"reload to update"**
+  banner (no skipWaiting). HTTPS-only registration (smoke test unaffected).
+- **On device (2026-11-15): install + offline confirmed.** Update-hint mechanism
+  verified in CI; observe on the phone after a 2nd deploy.
 
 ### M4 Step 1 — export + deploy (D26), pushed
 - **B1 `renderExport` (wasm):** export-resolution study that reuses the preview's
@@ -51,11 +61,11 @@ worker). The app is live at `https://tanhminh.github.io/painting-prep/`.
   photo fails.
 
 ### Next
-**M4 Step 2** per the approved plan
-(`~/.claude/plans/i-would-like-to-ethereal-spindle.md`): PWA **manifest +
-service worker** (install, offline, "reload to update" hint) — completes spec M4.
-Mind the `/painting-prep/` base path for the service-worker scope and precache
-list.
+**M5** (spec §9): quantile + natural-breaks algorithms, pre-blur ("squint"),
+compare view, legend strip UI (+ the legend-in-export toggle), and remembered
+settings (F5). Multi-crate (core + wasm + web) — plan it first. Also outstanding:
+observe the update hint on the phone (needs a 2nd deploy), and the canvas-limit
+check above.
 
 ---
 
