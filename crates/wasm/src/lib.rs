@@ -17,11 +17,17 @@ use wasm_bindgen::prelude::*;
 /// The value-study pipeline for one photo at a time.
 #[wasm_bindgen]
 pub struct Processor {
-    /// L\* map of the loaded photo; never modified after load (D15).
+    /// L\* map of the loaded (preview-size) photo; never modified after load (D15).
     l: Vec<f32>,
+    /// Scratch L\* map for an export-size render; separate from `l` so export
+    /// never touches the preview's map (D15).
+    l_export: Vec<f32>,
     hist: Box<[u32; BINS]>,
-    /// The last rendered study, RGBA8.
+    /// The last rendered preview study, RGBA8.
     out: Vec<u8>,
+    /// The last export-size study, RGBA8. Kept separate so an export never
+    /// clobbers `out`, which `paint()` reads at preview dimensions.
+    out_export: Vec<u8>,
     greys: Vec<u8>,
     counts: Vec<u64>,
     /// 0 × 0 until a photo is loaded, so `render` fails with `ZeroSize`.
@@ -33,8 +39,10 @@ impl Default for Processor {
     fn default() -> Self {
         Processor {
             l: Vec::new(),
+            l_export: Vec::new(),
             hist: Box::new([0; BINS]),
             out: Vec::new(),
+            out_export: Vec::new(),
             greys: Vec::new(),
             counts: Vec::new(),
             width: 0,
@@ -65,6 +73,25 @@ impl Processor {
         Ok(self.render(n, bucket_mean)?)
     }
 
+    /// Renders the study at an arbitrary export size (spec F4). `rgba` is the
+    /// photo decoded `width × height` at export resolution. It reuses the
+    /// **preview's** thresholds and greys — recomputed deterministically from the
+    /// retained preview histogram with the same `n`/`bucket_mean`, so the saved
+    /// image matches what was on screen (D11, D12) — and posterizes the
+    /// export-size L\* map into the separate export buffer. Call after a preview
+    /// `render`; read the result via `export_ptr`/`export_len`.
+    #[wasm_bindgen(js_name = renderExport)]
+    pub fn render_export_js(
+        &mut self,
+        rgba: Vec<u8>,
+        width: u32,
+        height: u32,
+        n: u8,
+        bucket_mean: bool,
+    ) -> Result<(), JsError> {
+        Ok(self.render_export(rgba, width, height, n, bucket_mean)?)
+    }
+
     /// Address of the output RGBA8 in wasm memory. Valid until the next
     /// `load` or `render`.
     pub fn output_ptr(&self) -> *const u8 {
@@ -74,6 +101,17 @@ impl Processor {
     /// Length of the output in bytes: `width × height × 4` after a render.
     pub fn output_len(&self) -> usize {
         self.out.len()
+    }
+
+    /// Address of the export-size output RGBA8 in wasm memory. Valid until the
+    /// next `render_export` (or any call that grows wasm memory).
+    pub fn export_ptr(&self) -> *const u8 {
+        self.out_export.as_ptr()
+    }
+
+    /// Length of the export output in bytes: export `width × height × 4`.
+    pub fn export_len(&self) -> usize {
+        self.out_export.len()
     }
 
     pub fn width(&self) -> u32 {
@@ -129,6 +167,40 @@ impl Processor {
             &mut self.out,
             self.width,
             self.height,
+        )
+    }
+
+    fn render_export(
+        &mut self,
+        mut rgba: Vec<u8>,
+        width: u32,
+        height: u32,
+        n: u8,
+        bucket_mean: bool,
+    ) -> prep_core::Result<()> {
+        let mode = if bucket_mean {
+            OutputGreys::BucketMean
+        } else {
+            OutputGreys::EvenlySpaced
+        };
+        // Reuse the preview's histogram → the same thresholds and greys as the
+        // on-screen study (D11); equal-interval cut points and the greys are a
+        // deterministic function of that histogram (D12).
+        let t = thresholds(&self.hist, n, Algorithm::EqualIntervals)?;
+        let greys = bucket_greys(&self.hist, &t, mode);
+        composite_over_white(&mut rgba, width, height)?;
+        let img = prep_core::Image::new(&rgba, width, height)?;
+        self.l_export.resize(img.pixel_count(), 0.0);
+        lightness_map(&img, &mut self.l_export)?;
+        self.out_export
+            .resize(self.l_export.len() * BYTES_PER_PIXEL, 0);
+        posterize(
+            &self.l_export,
+            &t,
+            &greys,
+            &mut self.out_export,
+            width,
+            height,
         )
     }
 }
@@ -202,6 +274,44 @@ mod tests {
         p.load(row(&[30, 220]), 2, 1).unwrap();
         p.render(2, true).unwrap();
         assert_eq!(p.out, row(&[30, 220]));
+    }
+
+    #[test]
+    fn export_matches_preview_thresholds_at_a_larger_size() {
+        let mut p = Processor::new();
+        p.load(row(&[30, 220]), 2, 1).unwrap(); // preview-size photo
+        p.render(2, false).unwrap();
+        assert_eq!(p.out, row(&[0, 255]));
+        // Export a larger buffer of the same two tones: same thresholds (D11).
+        p.render_export(row(&[30, 30, 220, 220]), 4, 1, 2, false)
+            .unwrap();
+        assert_eq!(p.out_export, row(&[0, 0, 255, 255]));
+        assert_eq!(p.export_len(), 16);
+        // The preview buffers are untouched (separate export scratch, D15).
+        assert_eq!(p.out, row(&[0, 255]));
+        assert_eq!((p.width(), p.height()), (2, 1));
+    }
+
+    #[test]
+    fn export_reuses_bucket_mean_greys_from_the_preview() {
+        let mut p = Processor::new();
+        p.load(row(&[30, 220]), 2, 1).unwrap();
+        p.render(2, true).unwrap(); // bucket-mean: greys are the photo's tones
+        p.render_export(row(&[30, 220]), 2, 1, 2, true).unwrap();
+        assert_eq!(p.out_export, row(&[30, 220]));
+    }
+
+    #[test]
+    fn a_plain_render_after_export_is_unaffected() {
+        let mut p = Processor::new();
+        p.load(row(&[30, 220]), 2, 1).unwrap();
+        p.render(2, false).unwrap();
+        p.render_export(row(&[30, 30, 220, 220]), 4, 1, 2, false)
+            .unwrap();
+        // Export didn't corrupt l/hist/out: a later preview render still works.
+        p.render(2, true).unwrap();
+        assert_eq!(p.out, row(&[30, 220]));
+        assert_eq!(p.output_len(), 8);
     }
 
     #[test]
