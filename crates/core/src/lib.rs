@@ -7,6 +7,7 @@
 // CLAUDE.md: no `unwrap`/`expect` in library code; return `Result` instead.
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
+mod blur;
 mod colour;
 mod composite;
 mod error;
@@ -17,6 +18,7 @@ mod lightness;
 mod posterize;
 mod thresholds;
 
+pub use blur::blur_lightness;
 pub use composite::composite_over_white;
 pub use error::{Error, Result};
 pub use grid::{Axis, GridMode, GridSpec, Line, grid_lines};
