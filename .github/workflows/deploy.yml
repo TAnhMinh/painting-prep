@@ -1,0 +1,56 @@
+name: Deploy
+
+# Build the wasm and publish web/ to GitHub Pages on every push to main (M4).
+# Pages serves over HTTPS, which the LAN plain-HTTP server can't — that's what
+# enables Web Share (export to Photos), the service worker, and installability.
+# Separate from ci.yml (check + webkit); both run on a push, independently.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # lets you redeploy by hand from the Actions tab
+
+# Pages authenticates the deploy with a short-lived OIDC token (id-token), so no
+# secret is stored in the repo. contents:read is enough to check the code out.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; don't cancel an in-progress deploy mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Installs the pinned toolchain + wasm32 target from rust-toolchain.toml.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # Must equal the wasm-bindgen crate pin (D22), as the webkit job does.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      # Compiles prep-wasm and generates web/pkg/ (same script as local/dev).
+      - run: scripts/build-web.sh
+      - uses: actions/configure-pages@v5
+      # Packages the whole web/ dir (now including the built pkg/) as the artifact.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
