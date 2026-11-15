@@ -8,9 +8,9 @@
 //! and before the next call that may allocate.
 
 use prep_core::{
-    Algorithm, Axis, BINS, BYTES_PER_PIXEL, GridMode, GridSpec, OutputGreys, bucket_counts,
-    bucket_greys, composite_over_white, grid_lines, histogram, lightness_map, posterize,
-    thresholds,
+    Algorithm, Axis, BINS, BYTES_PER_PIXEL, GridMode, GridSpec, OutputGreys, blur_lightness,
+    bucket_counts, bucket_greys, composite_over_white, grid_lines, histogram, lightness_map,
+    posterize, thresholds,
 };
 use wasm_bindgen::prelude::*;
 
@@ -19,10 +19,21 @@ use wasm_bindgen::prelude::*;
 pub struct Processor {
     /// L\* map of the loaded (preview-size) photo; never modified after load (D15).
     l: Vec<f32>,
+    /// Blurred copy of `l` for the current preview render; only built when blur
+    /// is on, so the no-blur path never touches it (keeps `l` pristine, D15).
+    l_blur: Vec<f32>,
+    /// Scratch buffer for the separable blur (preview and export share it).
+    blur_scratch: Vec<f32>,
     /// Scratch L\* map for an export-size render; separate from `l` so export
     /// never touches the preview's map (D15).
     l_export: Vec<f32>,
+    /// Histogram of the last preview render: of `l` when blur is off, of
+    /// `l_blur` when on. Export reuses it so the saved study matches (D11).
     hist: Box<[u32; BINS]>,
+    /// Whether `hist` currently reflects a blurred map, so a later unblurred
+    /// render knows to rebuild it from `l` (and the no-blur steady state skips
+    /// the rebuild, preserving the M4 timing).
+    hist_is_blurred: bool,
     /// The last rendered preview study, RGBA8.
     out: Vec<u8>,
     /// The last export-size study, RGBA8. Kept separate so an export never
@@ -39,8 +50,11 @@ impl Default for Processor {
     fn default() -> Self {
         Processor {
             l: Vec::new(),
+            l_blur: Vec::new(),
+            blur_scratch: Vec::new(),
             l_export: Vec::new(),
             hist: Box::new([0; BINS]),
+            hist_is_blurred: false,
             out: Vec::new(),
             out_export: Vec::new(),
             greys: Vec::new(),
@@ -66,21 +80,34 @@ impl Processor {
         Ok(self.load(rgba, width, height)?)
     }
 
-    /// Renders the equal-interval study with `n` buckets (2..=10) into the
-    /// output buffer. `bucket_mean` picks the output greys (D20).
+    /// Renders the study with `n` buckets (2..=10) into the output buffer.
+    /// `algo` is `"equal"`, `"quantile"`, or `"jenks"`; `bucket_mean` picks the
+    /// output greys (D20); `blur_pct` is the pre-blur as a percentage of the
+    /// short side (0 = off, §6).
     #[wasm_bindgen(js_name = render)]
-    pub fn render_js(&mut self, n: u8, bucket_mean: bool) -> Result<(), JsError> {
-        Ok(self.render(n, bucket_mean)?)
+    pub fn render_js(
+        &mut self,
+        n: u8,
+        bucket_mean: bool,
+        algo: &str,
+        blur_pct: f32,
+    ) -> Result<(), JsError> {
+        Ok(self.render(n, bucket_mean, algo_from_str(algo)?, blur_pct)?)
     }
 
     /// Renders the study at an arbitrary export size (spec F4). `rgba` is the
     /// photo decoded `width × height` at export resolution. It reuses the
     /// **preview's** thresholds and greys — recomputed deterministically from the
-    /// retained preview histogram with the same `n`/`bucket_mean`, so the saved
-    /// image matches what was on screen (D11, D12) — and posterizes the
-    /// export-size L\* map into the separate export buffer. Call after a preview
-    /// `render`; read the result via `export_ptr`/`export_len`.
+    /// retained preview histogram with the same `n`/`bucket_mean`/`algo`, so the
+    /// saved image matches what was on screen (D11, D12). Only the blur and
+    /// posterize rerun at export size (§6): the blur uses the export-scale sigma
+    /// (`blur_pct` × the export short side). Call after a preview `render`; read
+    /// the result via `export_ptr`/`export_len`.
     #[wasm_bindgen(js_name = renderExport)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "flat scalar args keep the wasm boundary simple; a params struct would export extra types for no gain"
+    )]
     pub fn render_export_js(
         &mut self,
         rgba: Vec<u8>,
@@ -88,8 +115,18 @@ impl Processor {
         height: u32,
         n: u8,
         bucket_mean: bool,
+        algo: &str,
+        blur_pct: f32,
     ) -> Result<(), JsError> {
-        Ok(self.render_export(rgba, width, height, n, bucket_mean)?)
+        Ok(self.render_export(
+            rgba,
+            width,
+            height,
+            n,
+            bucket_mean,
+            algo_from_str(algo)?,
+            blur_pct,
+        )?)
     }
 
     /// Address of the output RGBA8 in wasm memory. Valid until the next
@@ -150,26 +187,52 @@ impl Processor {
         Ok(())
     }
 
-    fn render(&mut self, n: u8, bucket_mean: bool) -> prep_core::Result<()> {
+    fn render(
+        &mut self,
+        n: u8,
+        bucket_mean: bool,
+        algo: Algorithm,
+        blur_pct: f32,
+    ) -> prep_core::Result<()> {
         let mode = if bucket_mean {
             OutputGreys::BucketMean
         } else {
             OutputGreys::EvenlySpaced
         };
-        let t = thresholds(&self.hist, n, Algorithm::EqualIntervals)?;
+        // Blur reruns the histogram (spec §5). With blur off, reuse the
+        // unblurred histogram computed on load, rebuilding it only if the last
+        // render left a blurred one behind (so the no-blur path keeps M4 timing).
+        let blurred = blur_pct > 0.0;
+        if blurred {
+            self.l_blur.clone_from(&self.l);
+            self.blur_scratch.resize(self.l.len(), 0.0);
+            let sigma = sigma_px(blur_pct, self.width, self.height);
+            blur_lightness(
+                &mut self.l_blur,
+                &mut self.blur_scratch,
+                self.width,
+                self.height,
+                sigma,
+            )?;
+            histogram(&self.l_blur, &mut self.hist);
+            self.hist_is_blurred = true;
+        } else if self.hist_is_blurred {
+            histogram(&self.l, &mut self.hist);
+            self.hist_is_blurred = false;
+        }
+        let src = if blurred { &self.l_blur } else { &self.l };
+
+        let t = thresholds(&self.hist, n, algo)?;
         self.greys = bucket_greys(&self.hist, &t, mode);
         self.counts = bucket_counts(&self.hist, &t);
-        self.out.resize(self.l.len() * BYTES_PER_PIXEL, 0);
-        posterize(
-            &self.l,
-            &t,
-            &self.greys,
-            &mut self.out,
-            self.width,
-            self.height,
-        )
+        self.out.resize(src.len() * BYTES_PER_PIXEL, 0);
+        posterize(src, &t, &self.greys, &mut self.out, self.width, self.height)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors render_export_js; grouping the export parameters would add a struct for no gain"
+    )]
     fn render_export(
         &mut self,
         mut rgba: Vec<u8>,
@@ -177,6 +240,8 @@ impl Processor {
         height: u32,
         n: u8,
         bucket_mean: bool,
+        algo: Algorithm,
+        blur_pct: f32,
     ) -> prep_core::Result<()> {
         let mode = if bucket_mean {
             OutputGreys::BucketMean
@@ -184,14 +249,28 @@ impl Processor {
             OutputGreys::EvenlySpaced
         };
         // Reuse the preview's histogram → the same thresholds and greys as the
-        // on-screen study (D11); equal-interval cut points and the greys are a
-        // deterministic function of that histogram (D12).
-        let t = thresholds(&self.hist, n, Algorithm::EqualIntervals)?;
+        // on-screen study (D11); the cut points and greys are a deterministic
+        // function of that histogram (D12). With blur on, that histogram is
+        // already the blurred-preview one, so the saved study matches.
+        let t = thresholds(&self.hist, n, algo)?;
         let greys = bucket_greys(&self.hist, &t, mode);
         composite_over_white(&mut rgba, width, height)?;
         let img = prep_core::Image::new(&rgba, width, height)?;
         self.l_export.resize(img.pixel_count(), 0.0);
         lightness_map(&img, &mut self.l_export)?;
+        // Only blur and posterize rerun at export size (§6); the blur uses the
+        // export-scale sigma so the squint looks the same as the preview's.
+        if blur_pct > 0.0 {
+            self.blur_scratch.resize(self.l_export.len(), 0.0);
+            let sigma = sigma_px(blur_pct, width, height);
+            blur_lightness(
+                &mut self.l_export,
+                &mut self.blur_scratch,
+                width,
+                height,
+                sigma,
+            )?;
+        }
         self.out_export
             .resize(self.l_export.len() * BYTES_PER_PIXEL, 0);
         posterize(
@@ -202,6 +281,22 @@ impl Processor {
             width,
             height,
         )
+    }
+}
+
+/// Pixel sigma for a blur percentage: `blur_pct / 100 × short side` (§6).
+fn sigma_px(blur_pct: f32, width: u32, height: u32) -> f32 {
+    blur_pct / 100.0 * width.min(height) as f32
+}
+
+/// Maps the JS algorithm string to the core [`Algorithm`]; an unknown value is a
+/// `JsError` (panics off wasm, D22), so this isn't unit-tested here.
+fn algo_from_str(algo: &str) -> Result<Algorithm, JsError> {
+    match algo {
+        "equal" => Ok(Algorithm::EqualIntervals),
+        "quantile" => Ok(Algorithm::Quantile),
+        "jenks" => Ok(Algorithm::NaturalBreaks),
+        other => Err(JsError::new(&format!("unknown algorithm {other:?}"))),
     }
 }
 
@@ -260,7 +355,7 @@ mod tests {
     fn two_tone_study_with_two_buckets() {
         let mut p = Processor::new();
         p.load(row(&[30, 220, 220, 220]), 4, 1).unwrap();
-        p.render(2, false).unwrap();
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
         assert_eq!(p.out, row(&[0, 255, 255, 255]));
         assert_eq!(p.greys(), vec![0, 255]);
         assert_eq!(p.counts(), vec![1.0, 3.0]);
@@ -272,7 +367,7 @@ mod tests {
     fn bucket_mean_keeps_the_photo_greys() {
         let mut p = Processor::new();
         p.load(row(&[30, 220]), 2, 1).unwrap();
-        p.render(2, true).unwrap();
+        p.render(2, true, Algorithm::EqualIntervals, 0.0).unwrap();
         assert_eq!(p.out, row(&[30, 220]));
     }
 
@@ -280,11 +375,19 @@ mod tests {
     fn export_matches_preview_thresholds_at_a_larger_size() {
         let mut p = Processor::new();
         p.load(row(&[30, 220]), 2, 1).unwrap(); // preview-size photo
-        p.render(2, false).unwrap();
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
         assert_eq!(p.out, row(&[0, 255]));
         // Export a larger buffer of the same two tones: same thresholds (D11).
-        p.render_export(row(&[30, 30, 220, 220]), 4, 1, 2, false)
-            .unwrap();
+        p.render_export(
+            row(&[30, 30, 220, 220]),
+            4,
+            1,
+            2,
+            false,
+            Algorithm::EqualIntervals,
+            0.0,
+        )
+        .unwrap();
         assert_eq!(p.out_export, row(&[0, 0, 255, 255]));
         assert_eq!(p.export_len(), 16);
         // The preview buffers are untouched (separate export scratch, D15).
@@ -296,8 +399,17 @@ mod tests {
     fn export_reuses_bucket_mean_greys_from_the_preview() {
         let mut p = Processor::new();
         p.load(row(&[30, 220]), 2, 1).unwrap();
-        p.render(2, true).unwrap(); // bucket-mean: greys are the photo's tones
-        p.render_export(row(&[30, 220]), 2, 1, 2, true).unwrap();
+        p.render(2, true, Algorithm::EqualIntervals, 0.0).unwrap(); // bucket-mean: greys are the photo's tones
+        p.render_export(
+            row(&[30, 220]),
+            2,
+            1,
+            2,
+            true,
+            Algorithm::EqualIntervals,
+            0.0,
+        )
+        .unwrap();
         assert_eq!(p.out_export, row(&[30, 220]));
     }
 
@@ -305,11 +417,19 @@ mod tests {
     fn a_plain_render_after_export_is_unaffected() {
         let mut p = Processor::new();
         p.load(row(&[30, 220]), 2, 1).unwrap();
-        p.render(2, false).unwrap();
-        p.render_export(row(&[30, 30, 220, 220]), 4, 1, 2, false)
-            .unwrap();
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
+        p.render_export(
+            row(&[30, 30, 220, 220]),
+            4,
+            1,
+            2,
+            false,
+            Algorithm::EqualIntervals,
+            0.0,
+        )
+        .unwrap();
         // Export didn't corrupt l/hist/out: a later preview render still works.
-        p.render(2, true).unwrap();
+        p.render(2, true, Algorithm::EqualIntervals, 0.0).unwrap();
         assert_eq!(p.out, row(&[30, 220]));
         assert_eq!(p.output_len(), 8);
     }
@@ -318,7 +438,7 @@ mod tests {
     fn transparent_input_is_composited_over_white() {
         let mut p = Processor::new();
         p.load(vec![0, 0, 0, 0, 0, 0, 0, 255], 2, 1).unwrap();
-        p.render(2, false).unwrap();
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
         assert_eq!(p.out, row(&[255, 0]));
     }
 
@@ -326,14 +446,17 @@ mod tests {
     fn bad_bucket_count_is_an_error() {
         let mut p = Processor::new();
         p.load(row(&[0]), 1, 1).unwrap();
-        assert_eq!(p.render(11, false), Err(Error::BucketCount { n: 11 }));
+        assert_eq!(
+            p.render(11, false, Algorithm::EqualIntervals, 0.0),
+            Err(Error::BucketCount { n: 11 })
+        );
     }
 
     #[test]
     fn render_before_load_is_an_error() {
         let mut p = Processor::new();
         assert_eq!(
-            p.render(5, false),
+            p.render(5, false, Algorithm::EqualIntervals, 0.0),
             Err(Error::ZeroSize {
                 width: 0,
                 height: 0
@@ -345,10 +468,10 @@ mod tests {
     fn failed_load_leaves_the_processor_unloaded() {
         let mut p = Processor::new();
         p.load(row(&[0, 0]), 2, 1).unwrap();
-        p.render(2, false).unwrap();
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
         assert!(p.load(row(&[0]), 2, 1).is_err());
         assert_eq!((p.width(), p.height(), p.output_len()), (0, 0, 0));
-        assert!(p.render(2, false).is_err());
+        assert!(p.render(2, false, Algorithm::EqualIntervals, 0.0).is_err());
     }
 
     #[test]
@@ -366,11 +489,64 @@ mod tests {
     fn buffers_are_reused_across_photos() {
         let mut p = Processor::new();
         p.load(row(&[10; 64]), 8, 8).unwrap();
-        p.render(5, false).unwrap();
+        p.render(5, false, Algorithm::EqualIntervals, 0.0).unwrap();
         let (l_cap, out_cap) = (p.l.capacity(), p.out.capacity());
         p.load(row(&[200; 16]), 4, 4).unwrap();
-        p.render(5, false).unwrap();
+        p.render(5, false, Algorithm::EqualIntervals, 0.0).unwrap();
         assert_eq!((p.l.capacity(), p.out.capacity()), (l_cap, out_cap));
         assert_eq!(p.output_len(), 64);
+    }
+
+    /// A `w × h` checkerboard of two sRGB greys, opaque.
+    fn checker(w: u32, h: u32, dark: u8, light: u8) -> Vec<u8> {
+        let mut rgba = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let g = if (x + y) % 2 == 0 { dark } else { light };
+                rgba.extend_from_slice(&[g, g, g, 255]);
+            }
+        }
+        rgba
+    }
+
+    #[test]
+    fn algorithm_changes_the_output() {
+        let mut p = Processor::new();
+        // Every tone is below L* 50, so equal intervals (fixed cut at 50) puts
+        // them all in the darkest bucket; quantiles split them by pixel count.
+        p.load(row(&[60, 70, 80, 90, 100, 110]), 6, 1).unwrap();
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
+        assert!(p.out.chunks(4).all(|px| px[0] == 0));
+        let equal = p.out.clone();
+        p.render(2, false, Algorithm::Quantile, 0.0).unwrap();
+        assert_ne!(p.out, equal);
+    }
+
+    #[test]
+    fn blur_changes_a_speckled_render() {
+        let mut p = Processor::new();
+        p.load(checker(6, 6, 20, 240), 6, 6).unwrap();
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
+        let sharp = p.out.clone();
+        p.render(2, false, Algorithm::EqualIntervals, 40.0).unwrap();
+        assert_ne!(p.out, sharp);
+        // Turning blur back off restores the sharp render (hist rebuilt from l).
+        p.render(2, false, Algorithm::EqualIntervals, 0.0).unwrap();
+        assert_eq!(p.out, sharp);
+    }
+
+    #[test]
+    fn export_reuses_blurred_preview_thresholds() {
+        // Same photo, size, and settings (with blur) → export matches preview,
+        // because export reuses the blurred-preview histogram (D11) and reruns
+        // the same blur at the same scale.
+        let photo = checker(6, 6, 30, 210);
+        let mut p = Processor::new();
+        p.load(photo.clone(), 6, 6).unwrap();
+        p.render(3, false, Algorithm::Quantile, 20.0).unwrap();
+        let preview = p.out.clone();
+        p.render_export(photo, 6, 6, 3, false, Algorithm::Quantile, 20.0)
+            .unwrap();
+        assert_eq!(p.out_export, preview);
     }
 }
