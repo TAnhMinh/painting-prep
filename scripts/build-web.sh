@@ -18,3 +18,10 @@ cargo build --release --locked -p prep-wasm --target wasm32-unknown-unknown
 wasm-bindgen --target web --no-typescript --out-dir web/pkg \
     target/wasm32-unknown-unknown/release/prep_wasm.wasm
 ls -l web/pkg
+
+# Stamp the build version into the service worker (M4, §7). web/sw.js is
+# git-ignored and regenerated here, so every deploy gets a fresh cache name and
+# a redeploy is detected. Prefer the commit SHA; fall back to a timestamp.
+version=$(git rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)
+sed "s/__BUILD_VERSION__/$version/" web/sw.js.tmpl > web/sw.js
+echo "service worker version: $version"

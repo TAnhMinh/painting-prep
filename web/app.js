@@ -21,6 +21,8 @@ const els = {
   error: $("error"),
   errorText: $("error-text"),
   errorClose: $("error-close"),
+  updateBanner: $("update-banner"),
+  updateReload: $("update-reload"),
   title: $("title"),
   // Settings overlay (D25).
   settings: $("settings"),
@@ -634,11 +636,49 @@ function debugInfo() {
   return rows;
 }
 
+/**
+ * Registers the service worker for offline + install (spec M4). Skipped unless
+ * on HTTPS — service workers need a secure context, and skipping on the
+ * plain-HTTP LAN and on localhost keeps the WebKit smoke test (served over http)
+ * free of cache interference. When a new deployed version finishes installing
+ * behind the current one, show a "reload to update" hint instead of switching
+ * mid-session (spec §7).
+ */
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || location.protocol !== "https:") return;
+  navigator.serviceWorker
+    .register("./sw.js")
+    .then((reg) => {
+      reg.addEventListener("updatefound", () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener("statechange", () => {
+          // installed + an existing controller = an update is waiting, not a
+          // first install.
+          if (sw.state === "installed" && navigator.serviceWorker.controller) {
+            els.updateReload.onclick = () => reg.waiting?.postMessage("skip-waiting");
+            els.updateBanner.hidden = false;
+          }
+        });
+      });
+    })
+    .catch((e) => console.warn(`service worker registration failed: ${e}`));
+
+  // When the waiting worker takes control (after skip-waiting), reload once.
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  });
+}
+
 async function main() {
   updateGridVisibility();
   setInfoProvider(debugInfo);
   bindLongPress(els.title);
   bindEvents(); // also syncs each stepper's output + disabled state
+  registerServiceWorker();
   try {
     state.wasm = await init();
     state.processor = new Processor();

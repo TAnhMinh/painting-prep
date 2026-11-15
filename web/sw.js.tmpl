@@ -1,0 +1,53 @@
+// Service worker (spec M4, §7): precache the app shell so it loads offline, and
+// version the cache per build so a redeploy is picked up. It does NOT call
+// skipWaiting on install — the page shows a "reload to update" hint and triggers
+// activation only when the user taps Reload (spec §7: never switch silently
+// mid-session).
+//
+// Generated from sw.js.tmpl by scripts/build-web.sh, which stamps the build
+// version in place of __BUILD_VERSION__. web/sw.js is git-ignored. Paths are
+// relative so the scope works under the /painting-prep/ project subpath (D26).
+
+const VERSION = "__BUILD_VERSION__";
+const CACHE = `painting-prep-${VERSION}`;
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./app.js",
+  "./debug.js",
+  "./style.css",
+  "./manifest.webmanifest",
+  "./pkg/prep_wasm.js",
+  "./pkg/prep_wasm_bg.wasm",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/apple-touch-icon.png",
+];
+
+self.addEventListener("install", (event) => {
+  // Precache the shell. No skipWaiting: the new worker waits for the user.
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      // Drop caches from older builds.
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      await self.clients.claim();
+    })(),
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  // Only same-origin GETs; cache-first for the app shell (offline).
+  if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
+  event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
+});
+
+self.addEventListener("message", (event) => {
+  // The page posts this when the user taps Reload on the update hint.
+  if (event.data === "skip-waiting") self.skipWaiting();
+});

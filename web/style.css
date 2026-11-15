@@ -36,8 +36,8 @@ body {
   /* The photo is full-screen (D25); controls live in the Settings overlay, which
      is fixed-position and outside this grid. Named areas: the hidden error banner
      takes no row, so implicit placement would shift the preview up a row. */
-  grid-template-areas: "top" "banner" "preview";
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: "top" "banner" "update" "preview";
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   padding:
@@ -83,6 +83,19 @@ body {
   color: inherit;
   font-size: 1.4rem;
   line-height: 1;
+}
+
+/* Update hint (spec §7): distinct from the red error banner. */
+#update-banner { grid-area: update; }
+.banner.update { background: var(--accent); color: var(--accent-fg); }
+.banner.update button {
+  min-height: 2.25rem;
+  padding: 0 0.9rem;
+  border-radius: 0.5rem;
+  background: var(--accent-fg);
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .preview {
