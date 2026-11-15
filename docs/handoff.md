@@ -49,12 +49,20 @@ Rust/wasm changes.
   round-trip + corrupt-fallback; **3→4→undo is pixel-identical**; reset is undoable;
   snapshot pin/compare/cap + replace; snapshots cleared on new photo).
 
+### Committed locally — NOT pushed
+Three commits on `main` (user reviews, then pushes — pushing triggers the Pages
+deploy in `deploy.yml`, so it goes live):
+- `dd14c8d` M5.6: legend strip (F2)
+- `efbfeda` M5.7: compare view (F2)
+- `11b6f9f` M6: undo/redo, reset, snapshots + remembered settings, legend-in-export (F5/F6)
+
+`git status` shows `main` ahead of origin. The 7-commit split first suggested
+wasn't feasible (see the CLAUDE.md "Where the AI was wrong" note of 2026-11-15);
+user chose the 3-commit grouping.
+
 ### Not done yet — next session
 - **On-device sign-off** (the M6 "Done when" + Phase B feel): see the CLAUDE.md
-  "Currently next" checklist. Test in a Safari **Private tab**.
-- Nothing is committed yet (awaiting the user's go-ahead). Suggested commits, one per
-  feature: legend, legend-in-export, compare, remembered-settings, undo/redo, reset,
-  snapshots (prefix `M5.x:` / `M6.x:`).
+  "Currently next" checklist. Test in a Safari **Private tab**. Then **push** to deploy.
 - Still open from before: large-photo/canvas-limit check; observe the update banner on
   device; `BACKLOG.md` ideas.
 
