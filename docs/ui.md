@@ -129,3 +129,20 @@ The on-device M3 check showed the stacked controls ate the preview and the grid 
 - The `#file` input stays **outside** the overlay (in the preview area) so both "Choose photo" labels reach it and the WebKit test can set files without opening the overlay.
 - Rows with two controls (axis+k, diag+over) **wrap** at phone width.
 - Debug panel and error banner are unchanged (the debug sheet sits above the Settings overlay so a title long-press still works).
+
+## M5 Phase A update (2026-11-15) — algorithm + blur rows (D28)
+
+Two study rows were added to the Settings overlay between **greys** and **grid**,
+following the existing patterns:
+
+- **algo** — a segmented control (Equal / Quant / Jenks), wired like **greys** (it
+  re-posterizes, not just repaints).
+- **blur** — a − / + stepper, **0–3% in 0.25% steps** (a % of the short side), with
+  a **hint line** of recommended values underneath (~0.25% light · ~0.5% medium ·
+  ~1% strong). On-device use showed 1% is already a strong squint, hence the fine
+  low end and the low cap.
+
+Verified in WebKit at 390 px: both rows fit without overflow. Still pending for
+Phase B: the **legend strip** (sketched above, below the photo) + a
+legend-in-export toggle, **compare** (hold the photo to peek the original), and
+remembered settings (F5).

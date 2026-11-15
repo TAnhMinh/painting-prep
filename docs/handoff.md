@@ -10,6 +10,48 @@ GitHub; `gh` isn't installed, so CI is checked by hand in the Actions tab._
 
 ---
 
+## Session of 2026-11-15 — M5 Phase A: algorithms + blur (COMPLETE)
+
+Milestones done: **M0–M4**, and **M5 Phase A** (D28). M5 was split: **Phase A**
+(this session) is the engine — quantile + natural-breaks algorithms and the
+pre-blur ("squint"); **Phase B** (next) is the refinements — legend strip +
+legend-in-export, compare (hold the photo to peek the original), remembered
+settings (F5). Snapshots/undo stay M6.
+
+### What shipped (commits, to push together)
+- **M5.1** `prep-core` quantile (cumulative histogram) + natural breaks (exact
+  Jenks DP over the 1001 bins); cuts stay bin indices (D12), so greys/counts/
+  posterize are unchanged. Empty-histogram → equal-interval fallback.
+- **M5.2** `prep-core` `blur_lightness` — triple box blur (Kovesi widths),
+  separable, clamp-to-edge, O(pixels); `sigma_px ≤ 0` is a no-op.
+- **M5.3** `prep values --algo equal|quantile|jenks` and `--blur <pct>`.
+- **M5.4** wasm `render`/`renderExport` take `algo` + `blur_pct`; `Processor`
+  gained `l_blur`/`blur_scratch`/`hist_is_blurred`. No-blur + equal path stays
+  byte-identical to M4. **Changes the JS signatures** — paired with M5.5.
+- **M5.5** web algorithm selector + blur stepper; then a follow-up making the blur
+  stepper **0–3% in 0.25% steps** with a hint line (1% was too strong on device).
+
+### Verified
+- Full Rust check green (114 core + CLI + 14 wasm tests, clippy clean, wasm target).
+- CLI on a real photo: quantile ≈ even buckets; blur visibly removes speckle.
+- **WebKit smoke 6/6** — study + export still byte-match the CLI on the default
+  path; new case exercises the algo control and the blur stepper. Overlay
+  screenshotted at 390 px.
+- **On the iPhone: blur confirmed good at 0.25%** (the granularity fix).
+
+### Reference
+- Plain-language explainers added: `docs/algorithms.md` (bucketing) and
+  `docs/blur.md` (the squint). Decision: **D28**.
+
+### Next (Phase B, plan it first)
+Legend strip (reuse the wasm `greys()`/`counts()`, currently unused by web) +
+legend-in-export toggle; compare via a hold on the full-screen `#preview`
+(reuse `state.originalImageData` + `bindLongPress`); remembered settings (F5) as
+one small versioned `localStorage` object. Plus the still-open canvas-limit check
+and the update-hint-on-device observation.
+
+---
+
 ## Session of 2026-11-15 — M3.5 UI rework + M4 export (COMPLETE)
 
 Milestones done: **M0, M1, M2, M3**, **M3.5** (pre-M4 UI refinement), and **M4**

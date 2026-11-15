@@ -178,3 +178,63 @@ Format: decision, alternatives considered, and why. Newest last. Mark superseded
 - **Registration guarded to HTTPS** (`location.protocol === "https:"`): service workers need a secure context anyway, and skipping on the plain-HTTP LAN and on localhost keeps the WebKit smoke test (served over http) free of cache interference, so no test changes were needed. Paths are relative so the scope is the `/painting-prep/` subpath.
 - **Verified:** smoke test 5/5 (SW inert on http; manifest/icons present so no 404s); a direct headless check confirmed the SW installs, precaches all 11 assets into `painting-prep-<sha>`, and the cached shell is offline-serveable while SW-controlled. **On device (2026-11-15): install (full-screen, icon) and offline both confirmed.**
 - **Still open:** the "reload to update" banner's mechanism is verified in CI but not yet *observed* on the phone (needs a 2nd deploy). Canvas-limit check (open question 3) still pending. A custom Pages domain would move the base off `/painting-prep/` and require revisiting the SW scope/precache list (`BACKLOG.md`).
+
+## D28 — M5 Phase A: quantile + natural breaks, and the pre-blur (2026-11-15)
+- **Scope / split.** M5 (spec §9) is large and multi-crate, so it's split into two
+  phases (user-confirmed). **Phase A (this entry):** the *engine* — the quantile
+  and natural-breaks algorithms and the pre-blur ("squint"), threaded core → CLI →
+  wasm → a minimal web control each. **Phase B (next session):** the *refinements*
+  — legend strip + legend-in-export toggle, compare (hold the photo to peek the
+  original), and remembered settings (F5). Snapshots/undo stay M6.
+- **Quantile** (`thresholds.rs`): equal pixel counts per bucket, from one pass of
+  the cumulative histogram (integer compare `prefix·n ≥ k·total`, ties to the upper
+  bucket, D12). Cuts come out non-decreasing; a dominant bin can empty buckets
+  (allowed, §6). An empty histogram falls back to equal intervals so `n` buckets
+  still exist.
+- **Natural breaks (Jenks)**: the split into `n` contiguous classes minimising the
+  within-class squared deviation of the bin index, by exact DP over the 1001 bins
+  (O(n·BINS²) ≈ 10⁷ at n=10, fine on load), class cost O(1) from prefix sums of
+  count / count·bin / count·bin². Cuts stay bin indices (D12), non-decreasing by
+  construction. f64 sums: two partitions tying to the last bit could order
+  differently across platforms, but a value study needs no bit-exact breaks (cf.
+  D11) and real clusters are well separated. Empty histogram → equal-interval
+  fallback. **`bucket_greys`/`bucket_counts`/`posterize` are unchanged** — they
+  already work on `Thresholds` bin indices, so all three algorithms share them.
+- **Blur** (`blur.rs`, `blur_lightness`): a Gaussian approximated by **three box
+  blurs** (Kovesi widths) — O(pixels) regardless of sigma, so a strong squint on a
+  large buffer is cheap (§6 permits the approximation). Each pass is separable
+  (horizontal then vertical) with clamp-to-edge, ping-ponging `l → scratch → l`.
+  Runs on the L\* map only, before histogram/threshold/posterize. `sigma_px ≤ 0`
+  (and NaN) is a no-op, so blur "off" leaves the map untouched.
+- **%→px in one place.** The blur control is a **percentage of the short side**
+  (§6: the preview and export then look alike); `sigma_px = blur% / 100 × short
+  side` is computed in wasm (`sigma_px`) and in the CLI, nowhere else.
+- **Pipeline wiring (wasm, spec §5 caching).** `Processor` gained `l_blur`,
+  `blur_scratch`, and a `hist_is_blurred` flag. `render(n, bucket_mean, algo,
+  blur_pct)`: blur on → blur a copy of `l` into `l_blur`, rebuild the histogram
+  from it, posterize from it; blur off → reuse the load-time histogram, rebuilding
+  it only if the previous render had blurred it — so the **no-blur + equal path is
+  byte-identical to M4** and keeps its timing (the WebKit byte-exact study/export
+  tests still pass). `renderExport(…, algo, blur_pct)` keeps taking thresholds/greys
+  from the **preview** histogram (D11) — the blurred one when blur is on, so the
+  saved study matches — and only reruns the blur (at **export-scale** sigma) and
+  posterize at export size (§6).
+- **`algo` crosses the wasm boundary as a string** (`"equal"|"quantile"|"jenks"`)
+  via `algo_from_str` → `JsError` on an unknown value, the same idiom as grid
+  `mode`/`axis`. No new return bindings — the legend (Phase B) reuses the existing
+  `greys()`/`counts()`.
+- **CLI:** `prep values --algo equal|quantile|jenks` (default equal) and `--blur
+  <PCT>` (default 0, negatives rejected). `Analysis::study(n, algo, mode, blur_pct)`
+  squints a copy of the L\* map and rebuilds the histogram before bucketing;
+  `legend()` names the algorithm and the blur. Confirmed on real photos (quantile
+  gives ≈ even buckets).
+- **Web test hook.** `#preview[data-rendered]` is now `"n,greys,algo,blur"`; the
+  default stays `5,even,equal,0`, so the byte-exact comparisons are unaffected.
+- **Blur UI granularity (revised after on-device use, 2026-11-15).** A first cut
+  used a 0–10% / 1% stepper; on the phone even **1% was far too strong** (≈ 15px
+  sigma on a ~1536-px-short preview — foliage turned to mush). Changed to **0–3% in
+  0.25% steps** (0.25 is exact in f32, so the display stays clean) with a **hint
+  line** of recommended values (~0.25% light, ~0.5% medium, ~1% strong).
+  **Confirmed good at 0.25% on the device.** `bindStepper` gained an optional
+  `stepBy` for the fractional step. Kept the stepper (not a slider or presets, per
+  D25) for fine one-handed control.
