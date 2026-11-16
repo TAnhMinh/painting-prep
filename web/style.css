@@ -325,8 +325,10 @@ body {
   inset: 0;
   z-index: 5;
   overflow-y: auto;
+  /* No top padding here: the sticky header carries the safe-area inset instead,
+     so scrolled content can't peek into a gap above it (tester #15). */
   padding:
-    calc(env(safe-area-inset-top) + 0.5rem) calc(env(safe-area-inset-right) + 1rem)
+    0 calc(env(safe-area-inset-right) + 1rem)
     calc(env(safe-area-inset-bottom) + 0.75rem) calc(env(safe-area-inset-left) + 1rem);
   background: var(--bg);
   color: var(--fg);
@@ -339,7 +341,8 @@ body {
   display: flex;
   align-items: center;
   gap: var(--gap);
-  padding: 0.25rem 0 0.5rem;
+  /* Pulls the safe-area top inset into the header so it pins flush to the top. */
+  padding: calc(env(safe-area-inset-top) + 0.5rem) 0 0.5rem;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
@@ -351,8 +354,9 @@ body {
   inset: 0;
   z-index: 10;
   overflow-y: auto;
+  /* Top inset moved to the sticky head, same as .overlay (tester #15). */
   padding:
-    calc(env(safe-area-inset-top) + 0.5rem) calc(env(safe-area-inset-right) + 0.75rem)
+    0 calc(env(safe-area-inset-right) + 0.75rem)
     calc(env(safe-area-inset-bottom) + 0.5rem) calc(env(safe-area-inset-left) + 0.75rem);
   background: var(--bg);
   color: var(--fg);
@@ -365,7 +369,7 @@ body {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  padding: 0.25rem 0 0.5rem;
+  padding: calc(env(safe-area-inset-top) + 0.5rem) 0 0.5rem;
   background: var(--bg);
 }
 .debug-head strong { flex: 1; font-size: 14px; }
