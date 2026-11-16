@@ -10,6 +10,74 @@ GitHub; `gh` isn't installed, so CI is checked by hand in the Actions tab._
 
 ---
 
+## Session of 2026-11-16 — Finalization: UI/UX polish from tester feedback (T1, T2 done)
+
+New phase: before shipping M5B+M6, fold in **tester feedback** and do an **educational
+wrap-up**. Two feedback sources (kept outside the repo):
+- `../linh_feedback.txt` — tester "Linh", 18 points, in Czech, tested on **Android/Windows**.
+- `../minh_feedback.txt` — the user's own 6 notes.
+
+The full agenda + approach lives in the **plan file**:
+`~/.claude/plans/i-would-like-to-splendid-knuth.md` (themes T1–T7, then final testing, then
+3 educational guides in `docs/learn/`). **Read that first next session.**
+
+**Decided working method:** theme-by-theme — discuss the UX principle, agree, implement;
+**one commit per coherent change**; full check + WebKit smoke after each; **don't push** (push
+deploys; still waiting on the M5B+M6 on-device sign-off). Platform: the Rust→wasm core + nearly
+all UI are cross-browser; "iPhone-only" is a scope/test choice. Fix **general** UX now; the one
+truly iOS-shaped item (#17 export→share) is deferred as a cross-platform "new feature" (now in
+`BACKLOG.md`).
+
+### Done this session (2 commits on `main`, NOT pushed)
+- `0915138` **T1 / #15** — content scrolled *over* the sticky overlay header. Cause: a
+  `position:sticky; top:0` header in a scroll container whose `padding-top` (safe-area inset)
+  sat *above* it, so scrolled content showed in that gap. Fix: move the top inset onto the
+  sticky header (in both `.overlay` and `.debug-panel`). Reproduced + verified in WebKit.
+- `17b8e37` **T2** — visual identity from the app icon: navy accent (`#15324e` light /
+  `#5b8cc0` dark) used only for active/selected; neutral-grey control borders (was accent-blue)
+  and light-grey control surfaces (Linh #7); **mid-grey photo surround `#777` = sRGB L\*50**
+  so values read true (user's choice). Palette tokens in `web/style.css` `:root`.
+
+### Key findings (save you re-deriving)
+- **#2 (tap) and #4 (snapshots) are NOT bugs.** Snapshots work (pin enabled on load,
+  `app.js:475`); the compare tap only activates once a *source* is picked (default "Off",
+  `app.js:1004`). Both are **discoverability** problems → moved to **T5**. (Lesson worth the
+  educational guide: most "it's broken" reports are "I couldn't figure it out.")
+- **Tooltips don't exist on touch** (iPhone has no hover). Use self-evident labels + short
+  inline hints (like the blur "squint:" line); add `title=` only as a desktop bonus.
+
+### Next up: T3 — Labels & naming (decisions already made with the user, NOT yet coded)
+Implement these (I reverted a half-done edit to keep the tree clean):
+- Panel renamed **"Settings" → "Controls"** (top-bar `#settings-open` button text + the
+  overlay `<strong>`). Keep the **app name visible** on the panel header (Linh #11): header
+  reads **"Painting Prep · Controls"** + the close button.
+- Close button **stays "Done"** (changes are live + autosaved; "Save"/"Apply" would imply a
+  deferred commit that doesn't exist). The user floated "Apply" — the real fix is T4 (stop the
+  panel covering the photo so changes show live); revisit the word then.
+- Plainer labels (change only the **visible text**, never the `id`/`value` — they cross the
+  wasm boundary and the WebKit test keys off them): `n`→**Values**, `greys`→**Greys** (+hint),
+  `algo`→**Algorithm** with options Equal/**Quantile**/**Natural** (ids stay equal/quantile/
+  jenks), `blur`→**Squint**, `k`→**Cells**. Add inline hints for Greys and Algorithm (Minh:
+  algorithms unexplained). Don't change `data-rendered` (`5,even,equal,0` must stay byte-exact).
+- #14's *stranded* "Cells" label (it wraps away from its stepper) is fixed by the T4 regroup.
+
+### Remaining themes (see plan file): T4 layout/IA (value-study vs grid split — the big one;
+center/constrain panel #10; separate choose-photo/export + show filename #12), T5 compare &
+snapshots (drop "Off" #1; **flat pin icon** replacing the red 📌 + tooltip #3; tap-photo to
+switch snaps #4; show the 4-max), T6 blur (finer than 0.25% + rescale the strong range; #13 +
+Minh), T7 export cleanup (#17 general parts). Then: `docs/device-test.md`, large-photo check,
+push; then the 3 `docs/learn/` guides.
+
+### Verify/screenshot workflow (set up this session)
+Toolchain is ready (cargo 1.98.1, wasm-bindgen 0.2.129, `.venv` + Playwright WebKit 1.63, wasm
+built). Terminal can't show images, so: Playwright scripts render to the scratchpad and I copy
+PNGs to the **parent folder `../`** for the user to open. Current ones there:
+`paintprep_BEFORE_settings_oldpalette.png`, `paintprep_AFTER_settings_light.png`,
+`..._settings_dark.png`, `..._main_light.png`.
+
+Also pending from before: **on-device sign-off of M5B+M6** (`docs/device-test.md` checklist to
+be written), large-photo/canvas-limit check (open q3), observe the update banner once on device.
+
 ## Session of 2026-11-15 — M5 Phase B + M6: legend, compare, settings, undo, snapshots (CODE COMPLETE, on-device pending)
 
 Decided with the user to follow the project's order (Option 2): do **M5 Phase B**
