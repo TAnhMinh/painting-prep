@@ -1,13 +1,19 @@
 /* Layout: docs/ui.md. M2 shows the preview with the controls stacked below. */
 
+/* Palette derived from the app icon: a deep navy frame around a greyscale value
+   ramp. Chrome stays neutral grey (a value-study tool shouldn't tint the eye);
+   navy is the single accent, used only for the active/selected state. */
 :root {
-  --bg: #f4f4f2;
-  --fg: #1c1c1c;
-  --muted: #6b6b6b;
-  --panel: #ffffff;
-  --line: #d6d6d2;
-  --accent: #2f5f8a;
+  --bg: #e9ebee;        /* calm cool-grey surround (less glare than near-white) */
+  --fg: #17212b;        /* near-navy ink, in the logo's family */
+  --muted: #5e6b78;
+  --panel: #f6f7f9;     /* control surface: light grey, not pure white (tester #7) */
+  --line: #ccd2d8;      /* neutral borders + dividers */
+  --accent: #15324e;    /* deep navy from the icon (tester #18; Minh: fit the logo) */
   --accent-fg: #ffffff;
+  /* Photo surround: sRGB 0x77 = L*50, the app's own perceptual mid-value. The
+     eye adapts to it, so the study's values read true. Same in light and dark. */
+  --canvas: #777777;
   --error-bg: #fbe3e1;
   --error-fg: #7a1c14;
   --gap: 0.75rem;
@@ -15,13 +21,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #161616;
-    --fg: #ececec;
-    --muted: #9a9a9a;
-    --panel: #222222;
-    --line: #3a3a3a;
-    --accent: #6fa3d2;
-    --accent-fg: #101010;
+    --bg: #12171d;      /* dark, in the logo's navy family */
+    --fg: #e6eaee;
+    --muted: #8a96a3;
+    --panel: #1b232c;
+    --line: #333d47;
+    --accent: #5b8cc0;  /* lifted navy-blue so it reads on dark (deep navy would vanish) */
+    --accent-fg: #0a0f14;
     --error-bg: #4a1f1b;
     --error-fg: #ffd9d4;
   }
@@ -140,6 +146,7 @@ body {
   min-height: 0;
   overflow: hidden;
   padding: var(--gap);
+  background: var(--canvas); /* neutral mid-grey so values read true */
 }
 
 .preview canvas {
@@ -193,7 +200,7 @@ body {
 .stepper {
   display: inline-flex;
   align-items: stretch;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--line);
   border-radius: 0.6rem;
   overflow: hidden;
 }
@@ -216,8 +223,8 @@ body {
   align-items: center;
   justify-content: center;
   font-variant-numeric: tabular-nums;
-  border-left: 1px solid var(--accent);
-  border-right: 1px solid var(--accent);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
 }
 
 .status { color: var(--muted); font-size: 0.875rem; }
@@ -241,7 +248,7 @@ body {
 .button:disabled { opacity: 0.5; cursor: default; }
 
 /* Segmented control: radio buttons styled as one bar. */
-.segmented { display: inline-flex; border: 1px solid var(--accent); border-radius: 0.6rem; overflow: hidden; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 0.6rem; overflow: hidden; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
 .segmented label { padding: 0.55rem 1.1rem; cursor: pointer; }
 .segmented input:checked + label { background: var(--accent); color: var(--accent-fg); }
@@ -279,7 +286,7 @@ body {
 .seg-btn {
   min-height: 2.5rem;
   padding: 0 0.8rem;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--line);
   border-radius: 0.5rem;
   background: var(--panel);
   color: var(--fg);
